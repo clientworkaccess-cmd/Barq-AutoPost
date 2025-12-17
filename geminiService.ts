@@ -16,18 +16,18 @@ function dataURLtoBlob(dataurl: string): Blob {
 }
 
 /**
- * Enhances the user's text using Gemini Flash.
- * Uses API_KEY from environment variables.
+ * Enhances the user's text using Gemini 3 Flash.
+ * Uses process.env.API_KEY exclusively as per guidelines.
  * @param text - The original text.
  * @returns The enhanced text.
  */
 export async function enhanceText(text: string): Promise<string> {
   try {
-    // Initialize Gemini with the API key from environment variables (Vercel)
+    // Standard initialization using process.env.API_KEY for Vercel/Environment compatibility
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-flash-preview',
       contents: `Rewrite the following text to be more professional, engaging, and suitable for a LinkedIn post about weekly accomplishments. 
       
       Rules:
@@ -47,17 +47,16 @@ export async function enhanceText(text: string): Promise<string> {
 
 /**
  * Generates a LinkedIn caption based on the accomplishment.
- * Uses API_KEY from environment variables.
+ * Uses process.env.API_KEY.
  * @param accomplishment - The user's achievement.
  * @returns A generated caption.
  */
 export async function generateCaption(accomplishment: string): Promise<string> {
   try {
-    // Initialize Gemini with the API key from environment variables (Vercel)
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-flash-preview',
       contents: `Write a short, engaging LinkedIn caption for the following professional accomplishment. Include relevant hashtags.
       
       Accomplishment: "${accomplishment}"
@@ -92,7 +91,7 @@ export async function generateSocialPost(
 ): Promise<string> {
   const WEBHOOK_URL = "https://n8n.srv927950.hstgr.cloud/webhook/image-get";
 
-  // Construct the detailed prompt to send to the webhook
+  // Detailed prompt for the image generation service
   const promptText = `
     Create a vertical (aspect ratio 3:4) social media post image suitable for LinkedIn.
 
@@ -112,12 +111,10 @@ export async function generateSocialPost(
     "${accomplishment}"
   `;
 
-  // Prepare FormData payload for binary upload
   const formData = new FormData();
   formData.append('prompt', promptText);
   formData.append('accomplishment', accomplishment);
 
-  // Convert logo base64 to binary blob
   try {
     const logoBlob = dataURLtoBlob(logoBase64);
     formData.append('logoImage', logoBlob, 'logo.png');
@@ -126,7 +123,6 @@ export async function generateSocialPost(
     throw new Error("Failed to process logo image.");
   }
 
-  // Convert style ref to binary blob if it exists
   if (styleRef) {
     try {
       const styleBlob = dataURLtoBlob(styleRef);
@@ -138,20 +134,17 @@ export async function generateSocialPost(
   }
 
   try {
-    // When sending FormData, the browser automatically sets Content-Type to multipart/form-data with the boundary
     const response = await fetch(WEBHOOK_URL, {
       method: 'POST',
       body: formData,
     });
 
     if (!response.ok) {
-      throw new Error(`Generation failed with status: ${response.status} ${response.statusText}`);
+      throw new Error(`Generation failed with status: ${response.status}`);
     }
 
-    // The webhook is expected to return the image binary (Blob)
     const blob = await response.blob();
 
-    // Convert Blob to Base64 Data URL for the frontend to display
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onloadend = () => {
