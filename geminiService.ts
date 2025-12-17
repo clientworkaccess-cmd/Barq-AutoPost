@@ -24,7 +24,7 @@ function dataURLtoBlob(dataurl: string): Blob {
 export async function enhanceText(text: string): Promise<string> {
   try {
     // Standard initialization using process.env.API_KEY for Vercel/Environment compatibility
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_API_KEY });
     
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
@@ -53,7 +53,7 @@ export async function enhanceText(text: string): Promise<string> {
  */
 export async function generateCaption(accomplishment: string): Promise<string> {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_API_KEY });
 
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
