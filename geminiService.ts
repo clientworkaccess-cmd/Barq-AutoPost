@@ -17,12 +17,15 @@ function dataURLtoBlob(dataurl: string): Blob {
 
 /**
  * Enhances the user's text using Gemini Flash.
+ * Uses API_KEY from environment variables.
  * @param text - The original text.
  * @returns The enhanced text.
  */
 export async function enhanceText(text: string): Promise<string> {
   try {
+    // Initialize Gemini with the API key from environment variables (Vercel)
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: `Rewrite the following text to be more professional, engaging, and suitable for a LinkedIn post about weekly accomplishments. 
@@ -44,12 +47,15 @@ export async function enhanceText(text: string): Promise<string> {
 
 /**
  * Generates a LinkedIn caption based on the accomplishment.
+ * Uses API_KEY from environment variables.
  * @param accomplishment - The user's achievement.
  * @returns A generated caption.
  */
 export async function generateCaption(accomplishment: string): Promise<string> {
   try {
+    // Initialize Gemini with the API key from environment variables (Vercel)
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: `Write a short, engaging LinkedIn caption for the following professional accomplishment. Include relevant hashtags.
