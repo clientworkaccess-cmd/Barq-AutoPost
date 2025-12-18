@@ -4,7 +4,7 @@ import { generateSocialPost, enhanceText, generateCaption } from './geminiServic
 
 const LOGO_URL = "https://res.cloudinary.com/djmakoiji/image/upload/v1765978253/Barq_Digital_Logo-removebg-preview_glejpc.png";
 const IMAGE_WEBHOOK_URL = "https://n8n.srv927950.hstgr.cloud/webhook/image-linkedin";
-const TEXT_WEBHOOK_URL = "https://n8n.srv927950.hstgr.cloud/webhook/post-text";
+const TEXT_WEBHOOK_URL = "https://n8n.srv927950.hstgr.cloud/webhook/3c345faf-7a5c-42ad-aa0a-4985b1e6f1dc";
 
 const LOADING_MESSAGES = [
   "We are cooking...",
@@ -158,8 +158,14 @@ const App = () => {
   };
 
   const handlePostToLinkedIn = async () => {
+    setNotification(null);
+    setError(null);
+    
     if (activeTab === 'image') {
-      if (!generatedImage) return;
+      if (!generatedImage) {
+        setError("Please generate an image first.");
+        return;
+      }
       setPosting(true);
       try {
         const res = await fetch(generatedImage);
@@ -180,27 +186,42 @@ const App = () => {
         }
       } catch (err: any) {
         console.error(err);
-        setNotification({ message: "Failed to post: " + err.message, type: 'error' });
+        setNotification({ message: "Failed to post image: " + err.message, type: 'error' });
       } finally {
         setPosting(false);
       }
     } else {
-      if (!textContent) return;
+      // Text post logic
+      if (!textContent) {
+        setError("Please enter some text content to post.");
+        return;
+      }
       setPosting(true);
       try {
+        // Explicitly sending the text content in a JSON structure
+        const payload = { 
+          text: textContent,
+          timestamp: new Date().toISOString(),
+          type: 'text_post'
+        };
+        
         const webhookRes = await fetch(TEXT_WEBHOOK_URL, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: textContent }),
+          headers: { 
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload),
         });
+        
         if (webhookRes.ok) {
           setNotification({ message: "Successfully posted text to LinkedIn!", type: 'success' });
         } else {
-          throw new Error(`Webhook failed with status ${webhookRes.status}`);
+          const errorText = await webhookRes.text();
+          throw new Error(`Webhook failed with status ${webhookRes.status}: ${errorText}`);
         }
       } catch (err: any) {
-        console.error(err);
-        setNotification({ message: "Failed to post: " + err.message, type: 'error' });
+        console.error("Text post error details:", err);
+        setNotification({ message: "Failed to post text: " + err.message, type: 'error' });
       } finally {
         setPosting(false);
       }
@@ -223,13 +244,13 @@ const App = () => {
           {/* TAB TOGGLE */}
           <div className="flex p-1 bg-[#1a1a1c] rounded-xl border border-gray-800">
             <button 
-              onClick={() => setActiveTab('image')}
+              onClick={() => { setActiveTab('image'); setNotification(null); setError(null); }}
               className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${activeTab === 'image' ? 'bg-orange-600 text-black shadow-lg' : 'text-gray-400 hover:text-white'}`}
             >
               Image Generator
             </button>
             <button 
-              onClick={() => setActiveTab('text')}
+              onClick={() => { setActiveTab('text'); setNotification(null); setError(null); }}
               className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${activeTab === 'text' ? 'bg-orange-600 text-black shadow-lg' : 'text-gray-400 hover:text-white'}`}
             >
               Text Post
@@ -314,13 +335,13 @@ const App = () => {
                 disabled={posting || !textContent}
                 className={`w-full py-4 rounded-xl font-bold text-lg tracking-wide uppercase shadow-lg transition-all transform hover:-translate-y-1 ${posting ? 'bg-gray-700 text-gray-400' : 'bg-blue-700 hover:bg-blue-600 text-white shadow-blue-900/40'}`}
               >
-                {posting ? "Posting..." : "Post Text to LinkedIn"}
+                {posting ? <span className="flex items-center justify-center gap-2"><span className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span> Posting...</span> : "Post Text to LinkedIn"}
               </button>
             </div>
           )}
 
           {error && <div className="p-4 bg-red-900/30 border border-red-800 text-red-200 rounded-lg text-sm">{error}</div>}
-          {notification && <div className={`p-4 rounded-lg text-sm border flex items-center ${notification.type === 'success' ? 'bg-green-900/30 border-green-800 text-green-200' : 'bg-red-900/30 border-red-800 text-red-200'}`}>{notification.message}</div>}
+          {notification && <div className={`p-4 rounded-lg text-sm border flex items-center shadow-xl animate-in fade-in slide-in-from-bottom-2 ${notification.type === 'success' ? 'bg-green-900/30 border-green-800 text-green-200' : 'bg-red-900/30 border-red-800 text-red-200'}`}>{notification.message}</div>}
         </div>
 
         {/* RIGHT COLUMN - PREVIEW */}
@@ -339,10 +360,10 @@ const App = () => {
                       <div className="flex justify-between items-center mb-2">
                          <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">LinkedIn Caption</label>
                          <div className="flex gap-2">
-                            <button onClick={handleGenerateCaption} disabled={generatingCaption} className="text-xs bg-gray-800 hover:bg-gray-700 text-orange-400 border border-gray-600 px-2 py-1 rounded">
+                            <button onClick={handleGenerateCaption} disabled={generatingCaption} className="text-xs bg-gray-800 hover:bg-gray-700 text-orange-400 border border-gray-600 px-2 py-1 rounded transition-colors">
                                {generatingCaption ? '⏳' : '✨'} AI Generate
                             </button>
-                            <button onClick={handleEnhanceCaption} disabled={enhancingCaption || !caption} className="text-xs bg-gray-800 hover:bg-gray-700 text-blue-400 border border-gray-600 px-2 py-1 rounded">
+                            <button onClick={handleEnhanceCaption} disabled={enhancingCaption || !caption} className="text-xs bg-gray-800 hover:bg-gray-700 text-blue-400 border border-gray-600 px-2 py-1 rounded transition-colors">
                                {enhancingCaption ? '⏳' : '🪄'} Enhance
                             </button>
                          </div>
@@ -367,7 +388,7 @@ const App = () => {
                   </div>
                 )
               ) : (
-                <div className="w-full max-w-lg bg-[#1a1a1c] border border-gray-800 rounded-2xl p-6 shadow-2xl animate-in zoom-in-95 duration-500">
+                <div className="w-full max-w-lg bg-[#1a1a1c] border border-gray-800 rounded-2xl p-6 shadow-2xl animate-in zoom-in-95 duration-500 flex flex-col">
                   <div className="flex items-center gap-3 mb-4">
                     <div className="w-10 h-10 rounded-full bg-gray-800 flex items-center justify-center border border-gray-700">
                       <img src={LOGO_URL} className="w-6 h-6 object-contain" alt="Barq" />
@@ -377,13 +398,21 @@ const App = () => {
                       <div className="text-[10px] text-gray-500 uppercase tracking-widest">LinkedIn Update</div>
                     </div>
                   </div>
-                  <div className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap min-h-[200px]">
+                  <div className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap min-h-[200px] flex-grow">
                     {textContent || <span className="text-gray-600 italic">No text content yet...</span>}
                   </div>
-                  <div className="mt-6 pt-4 border-t border-gray-800 flex justify-between text-[10px] text-gray-500 font-bold uppercase tracking-widest">
+                  <div className="mt-6 pt-4 border-t border-gray-800 flex justify-between text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-4">
                     <span>Text-only post preview</span>
                     <span className="text-orange-500">Ready to transmit</span>
                   </div>
+                  
+                  <button 
+                    onClick={handlePostToLinkedIn} 
+                    disabled={posting || !textContent}
+                    className={`w-full py-3 rounded-xl font-bold text-sm tracking-wide uppercase transition-all flex items-center justify-center gap-2 ${posting ? 'bg-gray-700 text-gray-500' : 'bg-blue-700 hover:bg-blue-600 text-white shadow-lg shadow-blue-900/30'}`}
+                  >
+                    {posting ? <span className="flex items-center justify-center gap-2"><span className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span> Transmitting...</span> : "Transmit to LinkedIn"}
+                  </button>
                 </div>
               )}
             </div>
