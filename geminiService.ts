@@ -18,27 +18,22 @@ function dataURLtoBlob(dataurl: string): Blob {
 /**
  * Access the API key from Vite environment variables.
  */
-const API_KEY = (import.meta as any).env.VITE_API_KEY || (process as any).env.API_KEY;
+const API_KEY = (import.meta as any).env.VITE_API_KEY;
 
 /**
  * Enhances the user's text using Gemini 3 Flash.
- * Focuses on professional brevity, high-status language, and impact.
  */
-export async function enhanceText(text: string): Promise<string> {
+export async function enhanceText(text: string, context: 'image' | 'text' = 'image'): Promise<string> {
   try {
     const ai = new GoogleGenAI({ apiKey: API_KEY });
     
+    const instruction = context === 'image' 
+      ? "Rewrite this professional accomplishment into a high-impact corporate headline for an image. Keep it under 15 words. Output ONLY the text."
+      : "Rewrite this professional update into an engaging, polished LinkedIn post. Use a professional yet authentic tone. Keep it concise but impactful. Output ONLY the text.";
+
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `Rewrite this professional accomplishment into a high-impact corporate headline.
-      
-      Rules:
-      1. Length: 10-15 words maximum.
-      2. Tone: Sophisticated, authoritative, results-driven.
-      3. Style: Start with a strong verb. Use high-value business vocabulary.
-      4. Output: ONLY the text. No quotes.
-      
-      Input: "${text}"`,
+      contents: `${instruction}\n\nInput: "${text}"`,
     });
     return response.text || text;
   } catch (error) {
@@ -76,7 +71,6 @@ export async function generateCaption(accomplishment: string): Promise<string> {
 
 /**
  * Generates the social media post image via the n8n webhook.
- * Dynamically switches prompts based on whether a style reference image is provided.
  */
 export async function generateSocialPost(
   accomplishment: string,
@@ -88,40 +82,36 @@ export async function generateSocialPost(
   let promptText = "";
 
   if (styleRef) {
-    // PROMPT WHEN STYLE REFERENCE IS PROVIDED
     promptText = `
-      Create a vertical social media post (4:5 aspect ratio) for LinkedIn that precisely mimics the artistic style of the provided "Style Image" (Image 2).
-      
-      STRICT REQUIREMENTS:
-      1. STYLE REFERENCE: Deeply analyze Image 2. Extract its specific color palette, textural qualities, background depth, and overall aesthetic vibe. Apply this style to the new image.
-      2. TYPOGRAPHY: Observe the font weight, casing, and positioning in Image 2. Use a similar professional style for the text "${accomplishment}". 
-         - Prefer DM Sans or a high-end geometric sans-serif that fits the reference.
-         - Ensure the text is perfectly legible and elegantly integrated into the reference style.
-      3. BRANDING: Place the "Barq Digital" logo (Image 1) at the TOP CENTER. It must be cleanly visible and consistent with the new style.
-      4. CONTENT: Only display the logo and the text: "${accomplishment}".
-      
-      Ensure the resulting design looks like it belongs to the same collection as the reference image but features the new logo and accomplishment.
-    `;
-  } else {
-    // CONSTANT DEFAULT PROMPT WHEN NO STYLE IMAGE IS PROVIDED
-    promptText = `
-      Create a world-class, premium corporate announcement image for LinkedIn.
-      ASPECT RATIO: 4:5 (Portrait).
-      
-      VISUAL ARCHITECTURE (Standard Barq Style):
-      - BACKGROUND: A sleek, professional minimalist aesthetic. Use a sophisticated deep charcoal (#121212) to black gradient. Add a cinematic soft amber/orange (#FF8C00) or yellow glow emanating subtly from one corner.
-      - TYPOGRAPHY: 
-          * PRIMARY FONT: Must use "DM Sans Bold". 
-          * TEXT: Display the message: "${accomplishment}".
-          * STYLING: Large, impactful typography centered perfectly. Crisp white text.
-      - BRANDING:
-          * LOGO (Image 1): Positioned cleanly at the TOP CENTER.
-      - ARTISTIC DIRECTION:
-          * Minimalist, modern, and high-authority.
-          * Focus on professional hierarchy and elegant spacing.
+Generate a sleek, vertical social media graphic for LinkedIn in a strict 4:5 aspect ratio, meticulously recreating the exact artistic style of the provided Style Reference Image (Image 2).
 
-      Ensure a high-resolution, executive look.
-    `;
+STYLE REPLICATION (CRITICAL):
+- Precisely match every visual detail from Image 2: identical color palette, textural qualities, background composition, and overall aesthetic.
+- The final design must appear as a seamless part of the exact same branded series.
+
+TYPOGRAPHY:
+- Center the text "${accomplishment}" prominently, using typography that exactly mirrors Image 2 in font weight, scale, and integration.
+- Use DM Sans as the primary font.
+
+BRANDING (STRICT):
+- Place the provided "Barq Digital" logo (Image 1) exactly at the top center.
+- Use the logo EXACTLY as provided.
+
+CONTENT RESTRICTIONS:
+- Include ONLY the logo and the centered text "${accomplishment}".
+`;
+  } else {
+    promptText = `
+Create a world-class, premium corporate announcement graphic for LinkedIn in a strict 4:5 portrait aspect ratio.
+
+VISUAL ARCHITECTURE:
+- BACKGROUND: Rich deep charcoal to true black gradient. Soft amber-orange (#FF8C00) and warm golden-yellow tones emanating diagonally.
+- ATMOSPHERE: Modern luxury, digital innovation, quiet confidence.
+- TYPOGRAPHY: "${accomplishment}" in DM Sans Bold. Large, centered, crisp white.
+- BRANDING: "Barq Digital" logo (Image 1) exactly at the top center, small and discreet.
+
+Final result: A breathtaking, professional visual statement of excellence.
+`;
   }
 
   const formData = new FormData();
