@@ -16,24 +16,30 @@ function dataURLtoBlob(dataurl: string): Blob {
 }
 
 /**
+ * Access the API key from Vite environment variables as requested.
+ * Fallback to process.env.API_KEY if needed, though the user requested VITE_API_KEY explicitly.
+ */
+const API_KEY = (import.meta as any).env.VITE_API_KEY || (process as any).env.API_KEY;
+
+/**
  * Enhances the user's text using Gemini 3 Flash.
- * Focuses on professional brevity and impact.
+ * Focuses on professional brevity, high-status language, and impact.
  */
 export async function enhanceText(text: string): Promise<string> {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: API_KEY });
     
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `Rewrite the following text into a high-impact, professional LinkedIn announcement.
+      contents: `Rewrite this professional accomplishment into a high-impact corporate headline.
       
       Rules:
-      1. Extreme Conciseness: Maximum 20 words.
-      2. Professional Tone: Use powerful action verbs (e.g., "Optimized," "Engineered," "Delivered").
-      3. Focus on Results: Highlight the outcome or value.
-      4. Output ONLY the rewritten text, no quotes or intro.
+      1. Length: 10-15 words maximum.
+      2. Tone: Sophisticated, authoritative, results-driven.
+      3. Style: Start with a strong verb. Use high-value business vocabulary.
+      4. Output: ONLY the text. No quotes.
       
-      Input Text: "${text}"`,
+      Input: "${text}"`,
     });
     return response.text || text;
   } catch (error) {
@@ -43,23 +49,23 @@ export async function enhanceText(text: string): Promise<string> {
 }
 
 /**
- * Generates a LinkedIn caption based on the accomplishment.
+ * Generates a sophisticated LinkedIn caption.
  */
 export async function generateCaption(accomplishment: string): Promise<string> {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: API_KEY });
 
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `Write a sophisticated, engaging LinkedIn caption for this achievement.
+      contents: `Draft a high-end LinkedIn post caption based on this accomplishment.
       
-      Accomplishment: "${accomplishment}"
+      Achievement: "${accomplishment}"
       
-      Rules:
-      1. Tone: Visionary and professional.
-      2. Structure: One impactful hook, one short detail, 3-5 hashtags.
-      3. Length: Maximum 280 characters.
-      4. Output only the caption.
+      Structure:
+      - Hook: A visionary opening line.
+      - Body: One sentence on the strategic value delivered.
+      - CTA: Professional closing.
+      - Hashtags: 3 relevant industry tags.
       `,
     });
     return response.text || "";
@@ -70,7 +76,7 @@ export async function generateCaption(accomplishment: string): Promise<string> {
 }
 
 /**
- * Generates the social media post image via the n8n webhook with a premium design prompt.
+ * Generates the social media post image via the n8n webhook with a premium corporate aesthetic.
  */
 export async function generateSocialPost(
   accomplishment: string,
@@ -79,25 +85,24 @@ export async function generateSocialPost(
 ): Promise<string> {
   const WEBHOOK_URL = "https://n8n.srv927950.hstgr.cloud/webhook/image-get";
 
-  // Highly refined prompt for professional corporate design
   const promptText = `
-    Create a premium, professional corporate announcement image. 
-    ASPECT RATIO: 4:5 (vertical).
+    Create a world-class, premium corporate announcement image for LinkedIn.
+    ASPECT RATIO: 4:5 (Portrait).
     
-    AESTHETIC:
-    - Background: A sophisticated, dark, minimal gradient transitioning from deep charcoal/black to a subtle, warm glowing orange in one corner.
-    - Texture: Very subtle matte finish or high-end architectural grain.
-    - Style: Modern, clean, and high-authority corporate branding.
-    ${styleRef ? '- Artistic Influence: Incorporate the vibe and color harmony of Image 2 subtly into the background.' : ''}
+    VISUAL ARCHITECTURE:
+    - BACKGROUND: A sleek, professional minimalist aesthetic. Use a sophisticated deep charcoal (#121212) to black gradient. Add a cinematic soft amber/orange (#FF8C00) or yellow glow emanating subtly from one corner.
+    - TYPOGRAPHY: 
+        * PRIMARY FONT: Must use "DM Sans" (Bold or Extra Bold). 
+        * TEXT: Display the message: "${accomplishment}".
+        * STYLING: Large, impactful typography. Perfect center alignment. Crisp white or light ivory text color.
+    - BRANDING:
+        * LOGO (Image 1): Positioned cleanly at the TOP CENTER. It should be perfectly integrated into the high-end design.
+    - ARTISTIC DIRECTION:
+        * Minimalist, modern, and high-authority.
+        * Focus on professional hierarchy and elegant spacing.
+        ${styleRef ? '* REFERENCES: Subtly incorporate the color harmony or textural quality of Image 2 into the background elements.' : ''}
 
-    ELEMENTS:
-    1. LOGO (Image 1): Positioned at the TOP CENTER. Ensure it is clean, medium-sized, and stands out with high contrast.
-    2. MAIN TEXT: Render the text "${accomplishment}" in the CENTER.
-       - FONT: Use "DM Sans Bold" or a similar high-end geometric sans-serif.
-       - TYPOGRAPHY: Large font size, perfect tracking, and leading. White or light-ivory text color for maximum legibility against the dark background.
-       - ALIGNMENT: Perfectly centered horizontally and vertically.
-
-    DO NOT include any secondary text, watermarks, or cluttered UI elements. The focus must be purely on the logo and the accomplishment.
+    Ensure the final result is high-resolution and suitable for an executive LinkedIn feed.
   `;
 
   const formData = new FormData();
@@ -140,10 +145,10 @@ export async function generateSocialPost(
         if (typeof reader.result === 'string') {
           resolve(reader.result);
         } else {
-          reject(new Error("Failed to convert response blob to base64"));
+          reject(new Error("Failed to convert image to base64"));
         }
       };
-      reader.onerror = () => reject(new Error("Failed to read response blob"));
+      reader.onerror = () => reject(new Error("Error reading image data"));
       reader.readAsDataURL(blob);
     });
 
