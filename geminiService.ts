@@ -43,7 +43,7 @@ export async function enhanceText(text: string, context: 'image' | 'text' = 'ima
 }
 
 /**
- * Generates a sophisticated LinkedIn caption.
+ * Generates a sophisticated LinkedIn caption for an image post.
  */
 export async function generateCaption(accomplishment: string): Promise<string> {
   try {
@@ -70,7 +70,7 @@ export async function generateCaption(accomplishment: string): Promise<string> {
 }
 
 /**
- * Generates the social media post image via the n8n webhook.
+ * Generates the social media post image via the n8n webhook using the detailed prompts provided.
  */
 export async function generateSocialPost(
   accomplishment: string,
@@ -83,34 +83,63 @@ export async function generateSocialPost(
 
   if (styleRef) {
     promptText = `
-Generate a sleek, vertical social media graphic for LinkedIn in a strict 4:5 aspect ratio, meticulously recreating the exact artistic style of the provided Style Reference Image (Image 2).
+Generate a sleek, vertical social media graphic for LinkedIn in a strict 4:5 aspect ratio (portrait orientation, ideally 1080x1350 pixels), meticulously recreating the exact artistic style of the provided Style Reference Image (Image 2).
 
 STYLE REPLICATION (CRITICAL):
-- Precisely match every visual detail from Image 2: identical color palette, textural qualities, background composition, and overall aesthetic.
-- The final design must appear as a seamless part of the exact same branded series.
+- Precisely match every visual detail from Image 2: identical color palette (dominant hues, subtle gradients, accents, and tones), textural qualities (grain, noise, overlays, material finishes), background composition (layering, abstract elements, depth of field, lighting, and atmospheric mood), and overall aesthetic (modern minimalism with premium, sophisticated, motivational energy).
+- The final design must appear as a seamless part of the exact same branded series — indistinguishable in style, harmony, and polish from the reference image.
 
 TYPOGRAPHY:
-- Center the text "${accomplishment}" prominently, using typography that exactly mirrors Image 2 in font weight, scale, and integration.
-- Use DM Sans as the primary font.
+- Center the text "${accomplishment}" prominently, using typography that exactly mirrors Image 2 in font weight (bold or semi-bold), letter spacing, casing (uppercase or lowercase as in reference), scale relative to the canvas, alignment, and integration.
+- Use DM Sans as the primary font, or the closest high-end geometric sans-serif that achieves perfect fidelity to the reference.
+- Ensure maximum legibility with high contrast, graceful positioning, balanced negative space, and subtle shadow/glow only if clearly present in the reference image.
 
 BRANDING (STRICT):
-- Place the provided "Barq Digital" logo (Image 1) exactly at the top center.
-- Use the logo EXACTLY as provided.
+- Place the provided "Barq Digital" logo (Image 1) exactly at the top center of the composition.
+- Use the logo EXACTLY as provided — do NOT recolor, modify, add glow/shadow/effects, distort, or alter it in any way.
+- Scale the logo to be noticeably small yet clearly visible and recognizable — not dominant or oversized, maintaining elegant restraint and allowing the accomplishment text to remain the focal point.
 
 CONTENT RESTRICTIONS:
-- Include ONLY the logo and the centered text "${accomplishment}".
+- Include ONLY two elements: the unchanged "Barq Digital" logo (small, top center) and the centered text "${accomplishment}".
+- No additional text, icons, borders, embellishments, patterns, or calls-to-action — preserve absolute clean minimalism.
+
+OVERALL DIRECTION:
+- Deliver ultra-sharp, premium-quality rendering with balanced composition, subtle depth, and timeless sophistication.
+- Evoke pride, achievement, innovation, and digital excellence while feeling like a natural continuation of the reference image’s visual collection.
+- Create a highly polished, ready-to-post LinkedIn graphic that commands attention through restraint and elegance.
+
+Final result must be visually stunning, emotionally resonant, and perfectly brand-consistent.
 `;
   } else {
     promptText = `
-Create a world-class, premium corporate announcement graphic for LinkedIn in a strict 4:5 portrait aspect ratio.
+Create a world-class, premium corporate announcement graphic for LinkedIn in a strict 4:5 portrait aspect ratio (1080x1350 pixels recommended). Deliver an ultra-polished, executive-level design with a creative yet professional edge.
 
-VISUAL ARCHITECTURE:
-- BACKGROUND: Rich deep charcoal to true black gradient. Soft amber-orange (#FF8C00) and warm golden-yellow tones emanating diagonally.
-- ATMOSPHERE: Modern luxury, digital innovation, quiet confidence.
-- TYPOGRAPHY: "${accomplishment}" in DM Sans Bold. Large, centered, crisp white.
-- BRANDING: "Barq Digital" logo (Image 1) exactly at the top center, small and discreet.
+VISUAL ARCHITECTURE & CREATIVE DIRECTION:
+- BACKGROUND: A deeply immersive, cinematic minimalist composition. Start with a rich deep charcoal (#121212) to true black gradient as the base. Introduce a dynamic, creative multi-layered gradient: subtle soft amber-orange (#FF8C00 to #FFB84D) blending into warm golden-yellow tones, emanating diagonally from the bottom-left corner upward in a gentle, ethereal glow. Add a secondary faint teal-blue (#00A3AD) accent glow from the top-right for sophisticated contrast and depth. Incorporate very subtle film grain and micro-texture for a premium tactile feel — never noisy, always refined.
+- ATMOSPHERE: Modern luxury meets digital innovation. Evoke quiet confidence, achievement, and forward momentum. Use soft volumetric light rays and delicate particle-like bokeh sparks in amber/gold to suggest energy and celebration without cluttering the minimalism.
 
-Final result: A breathtaking, professional visual statement of excellence.
+TYPOGRAPHY (CRITICAL):
+- Primary text: "${accomplishment}"
+- Font: Exclusively DM Sans Bold (or the closest premium geometric sans-serif if unavailable).
+- Style: Large, commanding headline size, perfectly centered vertically and horizontally. Crisp pure white (#FFFFFF) with maximum legibility and high contrast.
+- Enhance with subtle creative flair: very faint outer glow in warm amber and a delicate drop shadow for depth and separation from the background. Letter spacing slightly expanded for modern elegance.
+
+BRANDING (STRICT):
+- Place the provided "Barq Digital" logo (Image 1) precisely at the top center.
+- Use the logo EXACTLY as supplied — no recoloring, no effects, no modifications.
+- Scale it small and discreet: elegantly restrained (approximately 10–12% of canvas width), ensuring it brands without competing with the main message.
+
+COMPOSITION RULES:
+- Absolute minimalism: ONLY the logo and the accomplishment text. No additional icons, lines, shapes, borders, or embellishments.
+- Masterful use of negative space: generous breathing room around text and logo for an airy, high-authority executive feel.
+- Perfect symmetry and balance with subtle creative asymmetry in the gradient flow for visual interest.
+
+TECHNICAL QUALITY:
+- Ultra-high resolution, razor-sharp details, flawless rendering.
+- Professional color grading with rich blacks, vibrant yet controlled highlights, and cinematic contrast.
+- Designed to stand out powerfully in LinkedIn feeds while feeling timeless and brand-consistent.
+
+Final result: A breathtaking, emotionally resonant corporate announcement that transforms a simple achievement into a bold, inspiring visual statement of excellence.
 `;
   }
 
