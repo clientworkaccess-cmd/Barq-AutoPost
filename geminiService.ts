@@ -17,24 +17,21 @@ function dataURLtoBlob(dataurl: string): Blob {
 
 /**
  * Enhances the user's text using Gemini 3 Flash.
- * Uses process.env.API_KEY exclusively as per guidelines.
- * @param text - The original text.
- * @returns The enhanced text.
+ * Focuses on professional brevity and impact.
  */
 export async function enhanceText(text: string): Promise<string> {
   try {
-    // Standard initialization using process.env.API_KEY for Vercel/Environment compatibility
-    const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_API_KEY });
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `Rewrite the following text to be more professional, engaging, and suitable for a LinkedIn post about weekly accomplishments. 
+      contents: `Rewrite the following text into a high-impact, professional LinkedIn announcement.
       
       Rules:
-      1. Fix grammar and spelling.
-      2. Make it sound professional yet authentic.
-      3. Keep it concise (under 50 words if possible, unless the input is very long).
-      4. Do not add introductory text like "Here is the rewritten version:". Just output the text.
+      1. Extreme Conciseness: Maximum 20 words.
+      2. Professional Tone: Use powerful action verbs (e.g., "Optimized," "Engineered," "Delivered").
+      3. Focus on Results: Highlight the outcome or value.
+      4. Output ONLY the rewritten text, no quotes or intro.
       
       Input Text: "${text}"`,
     });
@@ -47,25 +44,22 @@ export async function enhanceText(text: string): Promise<string> {
 
 /**
  * Generates a LinkedIn caption based on the accomplishment.
- * Uses process.env.API_KEY.
- * @param accomplishment - The user's achievement.
- * @returns A generated caption.
  */
 export async function generateCaption(accomplishment: string): Promise<string> {
   try {
-    const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_API_KEY });
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `Write a short, engaging LinkedIn caption for the following professional accomplishment. Include relevant hashtags.
+      contents: `Write a sophisticated, engaging LinkedIn caption for this achievement.
       
       Accomplishment: "${accomplishment}"
       
       Rules:
-      1. Tone: Professional, enthusiastic, grateful.
-      2. Length: Short paragraph (2-3 sentences).
-      3. Include 3-5 relevant hashtags at the end.
-      4. Do not include quotes around the output.
+      1. Tone: Visionary and professional.
+      2. Structure: One impactful hook, one short detail, 3-5 hashtags.
+      3. Length: Maximum 280 characters.
+      4. Output only the caption.
       `,
     });
     return response.text || "";
@@ -76,13 +70,7 @@ export async function generateCaption(accomplishment: string): Promise<string> {
 }
 
 /**
- * Generates a social media post image using the n8n webhook.
- * Sends data as multipart/form-data with binary images.
- * 
- * @param accomplishment - The user's achievement text.
- * @param logoBase64 - The company logo in base64 format.
- * @param styleRef - (Optional) A style reference image in base64 format.
- * @returns The generated image as a base64 data URL.
+ * Generates the social media post image via the n8n webhook with a premium design prompt.
  */
 export async function generateSocialPost(
   accomplishment: string,
@@ -91,24 +79,25 @@ export async function generateSocialPost(
 ): Promise<string> {
   const WEBHOOK_URL = "https://n8n.srv927950.hstgr.cloud/webhook/image-get";
 
-  // Detailed prompt for the image generation service
+  // Highly refined prompt for professional corporate design
   const promptText = `
-    Create a vertical (aspect ratio 3:4) social media post image suitable for LinkedIn.
+    Create a premium, professional corporate announcement image. 
+    ASPECT RATIO: 4:5 (vertical).
+    
+    AESTHETIC:
+    - Background: A sophisticated, dark, minimal gradient transitioning from deep charcoal/black to a subtle, warm glowing orange in one corner.
+    - Texture: Very subtle matte finish or high-end architectural grain.
+    - Style: Modern, clean, and high-authority corporate branding.
+    ${styleRef ? '- Artistic Influence: Incorporate the vibe and color harmony of Image 2 subtly into the background.' : ''}
 
-    INPUTS:
-    - Image 1: The "Barq Digital" logo (lightning bolt icon).
-    ${styleRef ? '- Image 2: A style reference image.' : ''}
+    ELEMENTS:
+    1. LOGO (Image 1): Positioned at the TOP CENTER. Ensure it is clean, medium-sized, and stands out with high contrast.
+    2. MAIN TEXT: Render the text "${accomplishment}" in the CENTER.
+       - FONT: Use "DM Sans Bold" or a similar high-end geometric sans-serif.
+       - TYPOGRAPHY: Large font size, perfect tracking, and leading. White or light-ivory text color for maximum legibility against the dark background.
+       - ALIGNMENT: Perfectly centered horizontally and vertically.
 
-    DESIGN REQUIREMENTS:
-    1. COLOR PALETTE: Use dominant hues of Orange, Yellow, and Black.
-    2. BACKGROUND: Create an imaginative gradient or sleek dark textured background. 
-       ${styleRef ? 'Use Image 2 as a loose reference for the artistic vibe/texture, but do not copy it directly.' : ''}
-    3. LAYOUT:
-       - LOGO: Place Image 1 (the logo) at the TOP CENTER of the image. It must be legible and distinct.
-       - TEXT: Render the text provided below in the CENTER of the image. Use a clean, modern, bold font that is easy to read against the background.
-
-    TEXT CONTENT TO RENDER:
-    "${accomplishment}"
+    DO NOT include any secondary text, watermarks, or cluttered UI elements. The focus must be purely on the logo and the accomplishment.
   `;
 
   const formData = new FormData();
