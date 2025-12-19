@@ -3,7 +3,7 @@ import { GoogleGenAI } from "@google/genai";
 /**
  * Helper to convert Base64 Data URL to Blob
  */
-function dataURLtoBlob(dataurl: string): Blob {
+export function dataURLtoBlob(dataurl: string): Blob {
   const arr = dataurl.split(',');
   const mime = arr[0].match(/:(.*?);/)![1];
   const bstr = atob(arr[1]);
@@ -16,77 +16,47 @@ function dataURLtoBlob(dataurl: string): Blob {
 }
 
 /**
- * Resolves the API key with fallback logic to handle different environments.
- * Prioritizes Vite environment variables then falls back to process.env.
+ * Enhances text using Gemini 3 Flash.
  */
-const getApiKey = (): string => {
+export async function enhanceText(text: string): Promise<string> {
+  if (!text) return "";
   try {
-    // Attempt Vite-style access as requested
-    const viteKey = (import.meta as any).env.VITE_API_KEY;
-    if (viteKey) return viteKey;
-  } catch (e) {
-    // Fallback if import.meta.env is undefined or throws
-  }
-  
-  try {
-    // Fallback to standard process.env
-    return (process as any).env.API_KEY || "";
-  } catch (e) {
-    return "";
-  }
-};
-
-/**
- * Enhances the user's text using Gemini 3 Flash.
- */
-export async function enhanceText(text: string, context: 'image' | 'text' = 'image'): Promise<string> {
-  try {
-    const ai = new GoogleGenAI({ apiKey: getApiKey() });
-    
-    const instruction = context === 'image' 
-      ? "Rewrite this professional accomplishment into a high-impact corporate headline for an image. Keep it under 15 words. Output ONLY the text."
-      : "Rewrite this professional update into an engaging, polished LinkedIn post. Use a professional yet authentic tone. Keep it concise but impactful. Output ONLY the text.";
-
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `${instruction}\n\nInput: "${text}"`,
+      contents: `Rewrite this professional accomplishment for a social media graphic. Keep it impactful, bold, and under 12 words. Output ONLY the polished text.\n\nInput: "${text}"`,
     });
     return response.text || text;
   } catch (error) {
     console.error("Text enhancement failed:", error);
-    throw error;
+    return text;
   }
 }
 
 /**
- * Generates a sophisticated LinkedIn caption for an image post.
+ * Generates an engaging LinkedIn caption based on accomplishments.
  */
-export async function generateCaption(accomplishment: string): Promise<string> {
+export async function generateCaption(accomplishments: string): Promise<string> {
+  if (!accomplishments) return "";
   try {
-    const ai = new GoogleGenAI({ apiKey: getApiKey() });
-
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `Draft a high-end LinkedIn post caption based on this accomplishment.
-      
-      Achievement: "${accomplishment}"
-      
-      Structure:
-      - Hook: A visionary opening line.
-      - Body: One sentence on the strategic value delivered.
-      - CTA: Professional closing.
-      - Hashtags: 3 relevant industry tags.
-      `,
+      contents: `Write an engaging, high-energy LinkedIn caption for a post featuring these accomplishments: "${accomplishments}". 
+      Use a professional yet bold tone. 
+      Include 3-4 relevant hashtags. 
+      Keep it readable with line breaks.
+      Do not use emojis unless they are professional (like checkmarks or rockets).`,
     });
     return response.text || "";
   } catch (error) {
     console.error("Caption generation failed:", error);
-    throw error;
+    return "";
   }
 }
 
 /**
- * Generates the social media post image via the n8n webhook using the exact detailed prompts provided.
+ * Generates the social media post image via the n8n webhook.
  */
 export async function generateSocialPost(
   accomplishment: string,
@@ -94,104 +64,83 @@ export async function generateSocialPost(
   styleRef: string | null
 ): Promise<string> {
   const WEBHOOK_URL = "https://n8n.srv927950.hstgr.cloud/webhook/image-get";
-
-  let promptText = "";
-
-  if (styleRef) {
-    promptText = `Generate a sleek, vertical social media graphic for LinkedIn in a strict 4:5 aspect ratio (portrait orientation, ideally 1080x1350 pixels), meticulously recreating the exact artistic style of the provided Style Reference Image (Image 2).
-STYLE REPLICATION (CRITICAL):
-Precisely match every visual detail from Image 2: identical color palette (dominant hues, subtle gradients, accents, and tones), textural qualities (grain, noise, overlays, material finishes), background composition (layering, abstract elements, depth of field, lighting, and atmospheric mood), and overall aesthetic (modern minimalism with premium, sophisticated, motivational energy).
-The final design must appear as a seamless part of the exact same branded series — indistinguishable in style, harmony, and polish from the reference image.
-TYPOGRAPHY:
-Center the text "${accomplishment}" prominently, using typography that exactly mirrors Image 2 in font weight (bold or semi-bold), letter spacing, casing (uppercase or lowercase as in reference), scale relative to the canvas, alignment, and integration.
-Use DM Sans as the primary font, or the closest high-end geometric sans-serif that achieves perfect fidelity to the reference.
-Ensure maximum legibility with high contrast, graceful positioning, balanced negative space, and subtle shadow/glow only if clearly present in the reference image.
-BRANDING (STRICT):
-Place the provided "Barq Digital" logo (Image 1) exactly at the top center of the composition.
-Use the logo EXACTLY as provided — do NOT recolor, modify, add glow/shadow/effects, distort, or alter it in any way.
-Scale the logo to be noticeably small yet clearly visible and recognizable — not dominant or oversized, maintaining elegant restraint and allowing the accomplishment text to remain the focal point.
-CONTENT RESTRICTIONS:
-Include ONLY two elements: the unchanged "Barq Digital" logo (small, top center) and the centered text "${accomplishment}".
-No additional text, icons, borders, embellishments, patterns, or calls-to-action — preserve absolute clean minimalism.
-OVERALL DIRECTION:
-Deliver ultra-sharp, premium-quality rendering with balanced composition, subtle depth, and timeless sophistication.
-Evoke pride, achievement, innovation, and digital excellence while feeling like a natural continuation of the reference image’s visual collection.
-Create a highly polished, ready-to-post LinkedIn graphic that commands attention through restraint and elegance.
-Final result must be visually stunning, emotionally resonant, and perfectly brand-consistent.`;
-  } else {
-    promptText = `Create a world-class, premium corporate announcement graphic for LinkedIn in a strict 4:5 portrait aspect ratio (1080x1350 pixels recommended). Deliver an ultra-polished, executive-level design with a creative yet professional edge.
-VISUAL ARCHITECTURE & CREATIVE DIRECTION:
-BACKGROUND: A deeply immersive, cinematic minimalist composition. Start with a rich deep charcoal (#121212) to true black gradient as the base. Introduce a dynamic, creative multi-layered gradient: subtle soft amber-orange (#FF8C00 to #FFB84D) blending into warm golden-yellow tones, emanating diagonally from the bottom-left corner upward in a gentle, ethereal glow. Add a secondary faint teal-blue (#00A3AD) accent glow from the top-right for sophisticated contrast and depth. Incorporate very subtle film grain and micro-texture for a premium tactile feel — never noisy, always refined.
-ATMOSPHERE: Modern luxury meets digital innovation. Evoke quiet confidence, achievement, and forward momentum. Use soft volumetric light rays and delicate particle-like bokeh sparks in amber/gold to suggest energy and celebration without cluttering the minimalism.
-TYPOGRAPHY (CRITICAL):
-Primary text: "${accomplishment}"
-Font: Exclusively DM Sans Bold (or the closest premium geometric sans-serif if unavailable).
-Style: Large, commanding headline size, perfectly centered vertically and horizontally. Crisp pure white (#FFFFFF) with maximum legibility and high contrast.
-Enhance with subtle creative flair: very faint outer glow in warm amber and a delicate drop shadow for depth and separation from the background. Letter spacing slightly expanded for modern elegance.
-BRANDING (STRICT):
-Place the provided "Barq Digital" logo (Image 1) precisely at the top center.
-Use the logo EXACTLY as supplied — no recoloring, no effects, no modifications.
-Scale it small and discreet: elegantly restrained (approximately 10–12% of canvas width), ensuring it brands without competing with the main message.
-COMPOSITION RULES:
-Absolute minimalism: ONLY the logo and the accomplishment text. No additional icons, lines, shapes, borders, or embellishments.
-Masterful use of negative space: generous breathing room around text and logo for an airy, high-authority executive feel.
-Perfect symmetry and balance with subtle creative asymmetry in the gradient flow for visual interest.
-TECHNICAL QUALITY:
-Ultra-high resolution, razor-sharp details, flawless rendering.
-Professional color grading with rich blacks, vibrant yet controlled highlights, and cinematic contrast.
-Designed to stand out powerfully in LinkedIn feeds while feeling timeless and brand-consistent.
-Final result: A breathtaking, emotionally resonant corporate announcement that transforms a simple achievement into a bold, inspiring visual statement of excellence.`;
-  }
+  
+  const promptText = `A high-end corporate announcement graphic in strict 4:5 aspect ratio. 
+  Background: Deep orange and yellow gradient with subtle dark textures. 
+  Foreground: Bold white professional text in the center: "${accomplishment}". 
+  Requirement: Logo must be at the top center. 
+  ${styleRef ? "Style match: Refer to the provided style image for aesthetics." : "Aesthetic: Modern, clean, professional engineering style."}`;
 
   const formData = new FormData();
   formData.append('prompt', promptText);
   formData.append('accomplishment', accomplishment);
+  formData.append('logoImage', dataURLtoBlob(logoBase64), 'logo.png');
+  if (styleRef) formData.append('styleImage', dataURLtoBlob(styleRef), 'style.png');
 
+  const response = await fetch(WEBHOOK_URL, { method: 'POST', body: formData });
+  if (!response.ok) throw new Error("Generation failed.");
+  const blob = await response.blob();
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * Generates a new image based on text edit instructions.
+ */
+export async function generateImageEdit(originalImageBase64: string, instructions: string): Promise<string> {
   try {
-    const logoBlob = dataURLtoBlob(logoBase64);
-    formData.append('logoImage', logoBlob, 'logo.png');
-  } catch (e) {
-    console.error("Error processing logo image:", e);
-    throw new Error("Failed to process logo image.");
-  }
-
-  if (styleRef) {
-    try {
-      const styleBlob = dataURLtoBlob(styleRef);
-      formData.append('styleImage', styleBlob, 'style_reference.png');
-    } catch (e) {
-      console.error("Error processing style image:", e);
-      throw new Error("Failed to process style reference image.");
-    }
-  }
-
-  try {
-    const response = await fetch(WEBHOOK_URL, {
-      method: 'POST',
-      body: formData,
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+    const mimeType = originalImageBase64.split(';')[0].split(':')[1];
+    const base64Data = originalImageBase64.split(',')[1];
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: {
+        parts: [
+          { inlineData: { data: base64Data, mimeType } },
+          { text: `Modify this 4:5 social media post according to these instructions: ${instructions}. Maintain the aspect ratio and overall branding.` }
+        ]
+      }
     });
+    const part = response.candidates![0].content.parts.find(p => p.inlineData);
+    if (!part) throw new Error("No image returned from Gemini Edit.");
+    return `data:${part.inlineData!.mimeType};base64,${part.inlineData!.data}`;
+  } catch (error) {
+    console.error("Edit generation failed:", error);
+    throw error;
+  }
+}
 
-    if (!response.ok) {
-      throw new Error(`Generation failed with status: ${response.status}`);
-    }
+/**
+ * Sends edit data to the webhook and returns the processed image.
+ */
+export async function sendEditToWebhook(payload: {
+  originalImage: string;
+  editedImage?: string;
+  prompt: string;
+  type: 'visual' | 'text';
+}): Promise<string | null> {
+  const EDIT_WEBHOOK_URL = "https://n8n.srv927950.hstgr.cloud/webhook/4d10ba4c-3102-452a-ae61-51d3d022cf14";
+  const formData = new FormData();
+  formData.append('originalImage', dataURLtoBlob(payload.originalImage), 'original.png');
+  if (payload.editedImage) formData.append('editedImage', dataURLtoBlob(payload.editedImage), 'edited.png');
+  formData.append('prompt', payload.prompt);
+  formData.append('type', payload.type);
 
+  try {
+    const response = await fetch(EDIT_WEBHOOK_URL, { method: 'POST', body: formData });
+    if (!response.ok) return null;
     const blob = await response.blob();
-
-    return new Promise((resolve, reject) => {
+    if (blob.size === 0) return null;
+    return new Promise((resolve) => {
       const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === 'string') {
-          resolve(reader.result);
-        } else {
-          reject(new Error("Failed to convert image to base64"));
-        }
-      };
-      reader.onerror = () => reject(new Error("Error reading image data"));
+      reader.onloadend = () => resolve(reader.result as string);
       reader.readAsDataURL(blob);
     });
-
-  } catch (error: any) {
-    console.error("Webhook error:", error);
-    throw new Error(error.message || "Failed to connect to generation service.");
+  } catch (e) {
+    console.error("Webhook edit sync error:", e);
+    return null;
   }
 }

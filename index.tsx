@@ -1,412 +1,468 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
-import { generateSocialPost, enhanceText, generateCaption } from './geminiService';
+import { 
+  generateSocialPost, 
+  enhanceText, 
+  generateCaption,
+  dataURLtoBlob, 
+  generateImageEdit, 
+  sendEditToWebhook 
+} from './geminiService';
 
 const LOGO_URL = "https://res.cloudinary.com/djmakoiji/image/upload/v1765978253/Barq_Digital_Logo-removebg-preview_glejpc.png";
 const IMAGE_WEBHOOK_URL = "https://n8n.srv927950.hstgr.cloud/webhook/image-linkedin";
 
-const LOADING_MESSAGES = [
-  "We are cooking...",
-  "Making your post...",
-  "Mixing the colors...",
-  "Adding some sparkle...",
-  "Almost ready...",
-  "Styling the pixels..."
-];
+type Tool = 'text';
 
-type PostType = 'image' | 'text';
+interface Annotation {
+  id: string;
+  type: Tool;
+  x: number;
+  y: number;
+  text?: string;
+  color: string;
+}
 
-const App = () => {
-  const [activeTab, setActiveTab] = useState<PostType>('image');
-  const [accomplishment, setAccomplishment] = useState("");
-  const [textContent, setTextContent] = useState("");
-  const [styleRef, setStyleRef] = useState<string | null>(null);
-  const [generatedImage, setGeneratedImage] = useState<string | null>(null);
-  const [caption, setCaption] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [loadingMessage, setLoadingMessage] = useState(LOADING_MESSAGES[0]);
-  const [enhancing, setEnhancing] = useState(false);
-  const [generatingCaption, setGeneratingCaption] = useState(false);
-  const [enhancingCaption, setEnhancingCaption] = useState(false);
-  const [posting, setPosting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [logoBase64, setLogoBase64] = useState<string | null>(null);
-  const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
+const ImageEditor = ({ 
+  image, 
+  onClose, 
+  onSend 
+}: { 
+  image: string; 
+  onClose: () => void; 
+  onSend: (data: { editedImage?: string, textInstructions?: string, metadata?: Annotation[] }) => Promise<void> 
+}) => {
+  const [color, setColor] = useState('#FF8C00');
+  const [annotations, setAnnotations] = useState<Annotation[]>([]);
+  const [textInstructions, setTextInstructions] = useState("");
+  const [isSending, setIsSending] = useState(false);
+  
+  const [editingTextId, setEditingTextId] = useState<string | null>(null);
+  const [tempText, setTempText] = useState("");
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  // Cycle loading messages
+  // High-res internal dimensions for 4:5
+  const INTERNAL_WIDTH = 1080;
+  const INTERNAL_HEIGHT = 1350;
+
   useEffect(() => {
-    let interval: any;
-    if (loading) {
-      let i = 0;
-      setLoadingMessage(LOADING_MESSAGES[0]);
-      interval = setInterval(() => {
-        i = (i + 1) % LOADING_MESSAGES.length;
-        setLoadingMessage(LOADING_MESSAGES[i]);
-      }, 2500);
-    }
-    return () => clearInterval(interval);
-  }, [loading]);
+    const resize = () => {
+      if (!canvasRef.current || !containerRef.current) return;
+      
+      const container = containerRef.current;
+      const rect = container.getBoundingClientRect();
+      
+      // Calculate best fit for 4:5 in the available space
+      let displayWidth = rect.width;
+      let displayHeight = rect.width * (5/4);
+      
+      if (displayHeight > rect.height) {
+        displayHeight = rect.height;
+        displayWidth = displayHeight * (4/5);
+      }
 
-  // Fetch logo on mount
-  useEffect(() => {
-    const fetchLogo = async () => {
-      try {
-        const response = await fetch(LOGO_URL, { mode: 'cors' });
-        if (!response.ok) throw new Error('Failed to fetch logo');
-        const blob = await response.blob();
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          setLogoBase64(reader.result as string);
-        };
-        reader.readAsDataURL(blob);
-      } catch (err) {
-        console.error("Failed to fetch logo:", err);
-        setError("Warning: Could not load company logo. Please refresh or check connection.");
+      canvasRef.current.width = INTERNAL_WIDTH;
+      canvasRef.current.height = INTERNAL_HEIGHT;
+      canvasRef.current.style.width = `${displayWidth}px`;
+      canvasRef.current.style.height = `${displayHeight}px`;
+      
+      draw();
+    };
+    
+    resize();
+    window.addEventListener('resize', resize);
+    return () => window.removeEventListener('resize', resize);
+  }, [image]);
+
+  useEffect(() => { draw(); }, [annotations, editingTextId, tempText, color]);
+
+  const draw = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const drawItem = (item: Partial<Annotation>) => {
+      ctx.strokeStyle = item.color || color;
+      ctx.fillStyle = item.color || color;
+      ctx.font = 'bold 48px DM Sans';
+      ctx.textBaseline = 'middle';
+
+      if (item.id === editingTextId) {
+        ctx.globalAlpha = 0.5;
+        ctx.fillText(tempText + '|', item.x!, item.y!);
+        ctx.globalAlpha = 1.0;
+      } else if (item.text) {
+        ctx.fillText(item.text, item.x!, item.y!);
       }
     };
-    fetchLogo();
-  }, []);
 
-  const handleStyleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setStyleRef(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
+    annotations.forEach(drawItem);
   };
 
-  const handleEnhance = async (type: PostType) => {
-    const targetText = type === 'image' ? accomplishment : textContent;
-    if (!targetText) return;
-    
-    setEnhancing(true);
-    setError(null);
+  const getCanvasCoords = (e: React.MouseEvent) => {
+    const rect = canvasRef.current!.getBoundingClientRect();
+    const scaleX = INTERNAL_WIDTH / rect.width;
+    const scaleY = INTERNAL_HEIGHT / rect.height;
+    return {
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top) * scaleY
+    };
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (editingTextId) return; // Prevent multiple simultaneous edits
+    const { x, y } = getCanvasCoords(e);
+    const id = Date.now().toString();
+    setAnnotations([...annotations, { id, type: 'text', x, y, text: "", color }]);
+    setEditingTextId(id);
+    setTempText("");
+  };
+
+  const handleFinalSend = async () => {
+    setIsSending(true);
     try {
-      const improvedText = await enhanceText(targetText, type);
-      if (type === 'image') {
-        setAccomplishment(improvedText);
-      } else {
-        setTextContent(improvedText);
-      }
-    } catch (err: any) {
-      console.error(err);
-      setError("Failed to enhance text. Please try again.");
+      const exportCanvas = document.createElement('canvas');
+      exportCanvas.width = INTERNAL_WIDTH;
+      exportCanvas.height = INTERNAL_HEIGHT;
+      const ctx = exportCanvas.getContext('2d')!;
+      
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.src = image;
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+      });
+      
+      // Draw base image scaled to 4:5
+      ctx.drawImage(img, 0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
+      
+      // Overlay the manual text annotations
+      const annotationLayer = canvasRef.current!;
+      ctx.drawImage(annotationLayer, 0, 0);
+
+      await onSend({ 
+        editedImage: exportCanvas.toDataURL('image/png'),
+        textInstructions: textInstructions.trim() || undefined,
+        metadata: annotations
+      });
+      onClose();
+    } catch (e) {
+      console.error("Export failure:", e);
     } finally {
-      setEnhancing(false);
-    }
-  };
-
-  const handleGenerateCaption = async () => {
-    if (!accomplishment) return;
-    setGeneratingCaption(true);
-    try {
-      const cap = await generateCaption(accomplishment);
-      setCaption(cap);
-    } catch (err: any) {
-      console.error(err);
-      setError("Failed to generate caption.");
-    } finally {
-      setGeneratingCaption(false);
-    }
-  };
-
-  const handleEnhanceCaption = async () => {
-    if (!caption) return;
-    setEnhancingCaption(true);
-    try {
-      const improved = await enhanceText(caption, 'text');
-      setCaption(improved);
-    } catch (err: any) {
-      console.error(err);
-      setError("Failed to enhance caption.");
-    } finally {
-      setEnhancingCaption(false);
-    }
-  };
-
-  const handleGenerate = async () => {
-    if (!accomplishment) {
-      setError("Please enter your weekly accomplishments.");
-      return;
-    }
-    if (!logoBase64) {
-      setError("Logo is still loading, please wait a moment...");
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-    setGeneratedImage(null);
-    setNotification(null);
-    setCaption("");
-
-    try {
-      const imageResult = await generateSocialPost(accomplishment, logoBase64, styleRef);
-      setGeneratedImage(imageResult);
-    } catch (err: any) {
-      console.error(err);
-      setError(err.message || "Failed to generate image.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handlePostToLinkedIn = async () => {
-    setNotification(null);
-    setError(null);
-    
-    if (activeTab === 'image') {
-      if (!generatedImage) {
-        setError("Please generate an image first.");
-        return;
-      }
-      setPosting(true);
-      try {
-        const res = await fetch(generatedImage);
-        const blob = await res.blob();
-        const formData = new FormData();
-        formData.append('file', blob, 'post.png');
-        if (caption) {
-          formData.append('caption', caption);
-        }
-        // Using no-cors as a fallback if CORS headers are missing on the server
-        await fetch(IMAGE_WEBHOOK_URL, {
-          method: 'POST',
-          mode: 'no-cors',
-          body: formData,
-        });
-        setNotification({ message: "Image transmission initiated!", type: 'success' });
-      } catch (err: any) {
-        console.error(err);
-        setNotification({ message: "Failed to transmit image: " + err.message, type: 'error' });
-      } finally {
-        setPosting(false);
-      }
-    } else {
-      // Text post logic - Falling back to IMAGE_WEBHOOK_URL as requested
-      if (!textContent) {
-        setError("Please enter some text content to post.");
-        return;
-      }
-      setPosting(true);
-      try {
-        const formData = new FormData();
-        formData.append('text', textContent);
-        formData.append('timestamp', new Date().toISOString());
-        formData.append('type', 'text_post');
-        
-        await fetch(IMAGE_WEBHOOK_URL, {
-          method: 'POST',
-          mode: 'no-cors', // Bypasses preflight checks and CORS blocking
-          body: formData,
-        });
-        
-        setNotification({ message: "Text transmission initiated successfully!", type: 'success' });
-      } catch (err: any) {
-        console.error("Text post error details:", err);
-        setNotification({ message: "Failed to transmit text: " + err.message, type: 'error' });
-      } finally {
-        setPosting(false);
-      }
+      setIsSending(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4 md:p-8 bg-black text-white selection:bg-orange-500 selection:text-white font-['DM_Sans']">
-      <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12">
-        
-        {/* LEFT COLUMN - INPUTS */}
-        <div className="flex flex-col space-y-6">
-          <div className="space-y-2">
-            <h1 className="text-4xl font-extrabold tracking-tight bg-gradient-to-r from-orange-400 to-yellow-300 bg-clip-text text-transparent">
-              Barq Creator
-            </h1>
-            <p className="text-gray-400">Premium social tools for digital excellence.</p>
-          </div>
-
-          {/* TAB TOGGLE */}
-          <div className="flex p-1 bg-[#1a1a1c] rounded-xl border border-gray-800">
-            <button 
-              onClick={() => { setActiveTab('image'); setNotification(null); setError(null); }}
-              className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${activeTab === 'image' ? 'bg-orange-600 text-black shadow-lg' : 'text-gray-400 hover:text-white'}`}
-            >
-              Image Generator
-            </button>
-            <button 
-              onClick={() => { setActiveTab('text'); setNotification(null); setError(null); }}
-              className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${activeTab === 'text' ? 'bg-orange-600 text-black shadow-lg' : 'text-gray-400 hover:text-white'}`}
-            >
-              Text Post
-            </button>
-          </div>
-
-          {activeTab === 'image' ? (
-            <div className="space-y-6 animate-in slide-in-from-left duration-500">
-              <div className="bg-[#1a1a1c] p-6 rounded-2xl border border-gray-800 shadow-2xl relative">
-                <div className="flex justify-between items-center mb-3">
-                  <label className="text-sm font-semibold text-gray-300">Weekly Accomplishments</label>
-                  <button
-                    onClick={() => handleEnhance('image')}
-                    disabled={enhancing || !accomplishment}
-                    className="text-xs bg-[#2a2a2c] hover:bg-[#333] text-orange-400 border border-gray-700 px-3 py-1.5 rounded-lg flex items-center gap-2 transition-all disabled:opacity-50 group"
-                  >
-                    {enhancing ? <span className="w-4 h-4 border-2 border-orange-400 border-t-transparent rounded-full animate-spin"></span> : '✨ Enhance'}
-                  </button>
-                </div>
-                <textarea 
-                  value={accomplishment}
-                  onChange={(e) => setAccomplishment(e.target.value)}
-                  placeholder="Describe your wins..."
-                  className="w-full h-40 bg-[#0f0f10] border border-gray-700 rounded-xl p-4 text-gray-100 focus:ring-2 focus:ring-orange-500 outline-none transition-all resize-none"
-                />
-              </div>
-
-              <div className="bg-[#1a1a1c] p-6 rounded-2xl border border-gray-800 shadow-2xl">
-                <label className="block text-sm font-semibold text-gray-300 mb-2">Style Reference (Optional)</label>
-                <div 
-                  onClick={() => fileInputRef.current?.click()}
-                  className="group cursor-pointer w-full h-24 border-2 border-dashed border-gray-700 rounded-xl flex items-center justify-center hover:border-orange-500 hover:bg-[#252528] transition-all relative overflow-hidden"
-                >
-                  <input type="file" ref={fileInputRef} onChange={handleStyleUpload} className="hidden" accept="image/*" />
-                  {styleRef ? (
-                     <div className="flex items-center space-x-3">
-                       <img src={styleRef} alt="Ref" className="h-16 w-16 object-cover rounded-lg border border-gray-600" />
-                       <span className="text-green-400 text-sm font-medium">Reference loaded</span>
-                     </div>
-                  ) : (
-                    <div className="flex flex-col items-center text-gray-500 group-hover:text-orange-400">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                      </svg>
-                      <span className="text-xs uppercase font-bold">Upload Image</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <button
-                onClick={handleGenerate}
-                disabled={loading}
-                className={`w-full py-4 rounded-xl font-bold text-lg tracking-wide uppercase shadow-lg transition-all transform hover:-translate-y-1 ${loading ? 'bg-gray-700 text-gray-400' : 'bg-gradient-to-r from-orange-600 to-yellow-500 text-black'}`}
-              >
-                {loading ? <span className="flex items-center justify-center gap-3"><span className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full"></span>{loadingMessage}</span> : "Generate Post Image"}
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-6 animate-in slide-in-from-right duration-500">
-              <div className="bg-[#1a1a1c] p-6 rounded-2xl border border-gray-800 shadow-2xl relative">
-                <div className="flex justify-between items-center mb-3">
-                  <label className="text-sm font-semibold text-gray-300">Post Content</label>
-                  <button
-                    onClick={() => handleEnhance('text')}
-                    disabled={enhancing || !textContent}
-                    className="text-xs bg-[#2a2a2c] hover:bg-[#333] text-orange-400 border border-gray-700 px-3 py-1.5 rounded-lg flex items-center gap-2 transition-all disabled:opacity-50 group"
-                  >
-                    {enhancing ? <span className="w-4 h-4 border-2 border-orange-400 border-t-transparent rounded-full animate-spin"></span> : '🪄 AI Polish'}
-                  </button>
-                </div>
-                <textarea 
-                  value={textContent}
-                  onChange={(e) => setTextContent(e.target.value)}
-                  placeholder="Share your thoughts or news with the network..."
-                  className="w-full h-64 bg-[#0f0f10] border border-gray-700 rounded-xl p-4 text-gray-100 focus:ring-2 focus:ring-orange-500 outline-none transition-all resize-none"
-                />
-              </div>
-
-              <button
-                onClick={handlePostToLinkedIn}
-                disabled={posting || !textContent}
-                className={`w-full py-4 rounded-xl font-bold text-lg tracking-wide uppercase shadow-lg transition-all transform hover:-translate-y-1 ${posting ? 'bg-gray-700 text-gray-400' : 'bg-blue-700 hover:bg-blue-600 text-white shadow-blue-900/40'}`}
-              >
-                {posting ? <span className="flex items-center justify-center gap-2"><span className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span> Transmitting...</span> : "Post Text to LinkedIn"}
-              </button>
-            </div>
-          )}
-
-          {error && <div className="p-4 bg-red-900/30 border border-red-800 text-red-200 rounded-lg text-sm">{error}</div>}
-          {notification && <div className={`p-4 rounded-lg text-sm border flex items-center shadow-xl animate-in fade-in slide-in-from-bottom-2 ${notification.type === 'success' ? 'bg-green-900/30 border-green-800 text-green-200' : 'bg-red-900/30 border-red-800 text-red-200'}`}>{notification.message}</div>}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/98 p-4 md:p-8 overflow-hidden animate-in fade-in duration-300">
+      <div className="w-full h-full max-w-7xl flex flex-col gap-6">
+        {/* Header */}
+        <div className="flex justify-between items-center shrink-0">
+           <div className="flex items-center gap-4">
+             <h2 className="text-2xl font-black text-orange-500 italic tracking-tighter">BARQ EDITOR_</h2>
+             <div className="h-4 w-px bg-white/10 hidden md:block" />
+             <div className="flex items-center gap-3">
+               <span className="bg-orange-600/10 text-orange-500 px-3 py-1 rounded-md text-[10px] font-black uppercase tracking-widest border border-orange-500/20">TEXT MODE_</span>
+               <input 
+                 type="color" 
+                 value={color} 
+                 onChange={e => setColor(e.target.value)} 
+                 className="w-8 h-8 rounded-lg cursor-pointer bg-transparent border border-white/10 hover:border-orange-500 transition-colors" 
+                 title="Text Color" 
+               />
+             </div>
+           </div>
+           <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors text-sm font-black tracking-widest">CLOSE [X]</button>
         </div>
+        
+        {/* Workspace - Fixed 4:5 Preview */}
+        <div className="flex-grow flex items-center justify-center relative bg-[#0a0a0a] rounded-[2.5rem] border border-white/5 overflow-hidden group">
+          <div ref={containerRef} className="w-full h-full flex items-center justify-center relative">
+            <div className="relative shadow-[0_0_80px_rgba(255,140,0,0.05)] border border-white/5 overflow-hidden">
+               {/* Base Image Layer */}
+               <img 
+                 src={image} 
+                 className="absolute inset-0 w-full h-full object-cover pointer-events-none" 
+                 style={{ aspectRatio: '4/5' }}
+               />
+               
+               {/* Drawing Canvas Layer */}
+               <canvas 
+                 ref={canvasRef} 
+                 onMouseDown={handleMouseDown} 
+                 className="relative z-20 cursor-text touch-none"
+                 title="Click anywhere to add text"
+               />
 
-        {/* RIGHT COLUMN - PREVIEW */}
-        <div className="flex flex-col bg-[#151516] rounded-3xl border border-gray-800 p-8 min-h-[500px] relative overflow-hidden">
-            <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-gray-700 via-[#000] to-black pointer-events-none"></div>
-
-            <div className="flex-grow flex items-center justify-center w-full z-10">
-              {activeTab === 'image' ? (
-                generatedImage ? (
-                  <div className="relative w-full flex flex-col items-center animate-in fade-in duration-700 space-y-8">
-                    <div className="relative shadow-2xl rounded-sm overflow-hidden border-4 border-gray-900" style={{ aspectRatio: '4/5', maxHeight: '480px' }}>
-                        <img src={generatedImage} alt="Generated Post" className="w-full h-full object-cover" />
-                    </div>
-
-                    <div className="w-full bg-[#1a1a1c] border border-gray-800 rounded-xl p-4">
-                      <div className="flex justify-between items-center mb-2">
-                         <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">LinkedIn Caption</label>
-                         <div className="flex gap-2">
-                            <button onClick={handleGenerateCaption} disabled={generatingCaption} className="text-xs bg-gray-800 hover:bg-gray-700 text-orange-400 border border-gray-600 px-2 py-1 rounded transition-colors">
-                               {generatingCaption ? '⏳' : '✨'} AI Generate
-                            </button>
-                            <button onClick={handleEnhanceCaption} disabled={enhancingCaption || !caption} className="text-xs bg-gray-800 hover:bg-gray-700 text-blue-400 border border-gray-600 px-2 py-1 rounded transition-colors">
-                               {enhancingCaption ? '⏳' : '🪄'} Enhance
-                            </button>
-                         </div>
-                      </div>
-                      <textarea value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="Add a caption..." className="w-full h-20 bg-[#0f0f10] border border-gray-700 rounded-lg p-3 text-sm text-gray-200 focus:ring-1 focus:ring-orange-500 outline-none resize-none" />
-                    </div>
-
-                    <div className="flex gap-4 w-full">
-                       <button onClick={handleGenerate} className="flex-1 py-3 px-6 rounded-lg font-semibold bg-gray-800 hover:bg-gray-700 text-white border border-gray-600 transition-colors flex items-center justify-center gap-2">Regenerate</button>
-                       <button onClick={handlePostToLinkedIn} disabled={posting} className="flex-1 py-3 px-6 rounded-lg font-semibold bg-blue-700 hover:bg-blue-600 text-white shadow-lg shadow-blue-900/30 transition-colors flex items-center justify-center gap-2">
-                          {posting ? "Posting..." : "Post to LinkedIn"}
-                       </button>
-                    </div>
+               {/* Active Text Input Overlay */}
+               {editingTextId && (
+                <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40 backdrop-blur-[2px] animate-in fade-in duration-200">
+                  <div className="bg-[#111] p-6 rounded-3xl border border-orange-500/30 shadow-2xl w-80 translate-y-[-20%]">
+                    <p className="text-[10px] text-orange-500 font-black uppercase tracking-widest mb-3">Add Overlay Content_</p>
+                    <input 
+                      autoFocus
+                      className="w-full bg-black/50 border-b-2 border-orange-600 p-3 outline-none text-white text-xl font-bold rounded-t-lg"
+                      placeholder="Type text..."
+                      value={tempText}
+                      onChange={e => setTempText(e.target.value)}
+                      onBlur={() => {
+                        if (tempText.trim() === "") {
+                          setAnnotations(prev => prev.filter(a => a.id !== editingTextId));
+                        } else {
+                          setAnnotations(prev => prev.map(a => a.id === editingTextId ? { ...a, text: tempText } : a));
+                        }
+                        setEditingTextId(null);
+                      }}
+                      onKeyDown={e => e.key === 'Enter' && e.currentTarget.blur()}
+                    />
+                    <p className="mt-3 text-[9px] text-gray-500 font-bold uppercase tracking-tighter">Press ENTER to save or click away</p>
                   </div>
-                ) : (
-                  <div className="text-center p-8 max-w-md">
-                     <div className="w-24 h-32 border-2 border-gray-700 border-dashed rounded-lg mx-auto mb-6 flex items-center justify-center">
-                        <span className="text-gray-600 font-bold text-4xl opacity-50">?</span>
-                     </div>
-                     <h3 className="text-xl font-bold text-gray-200 mb-2">Visual Preview</h3>
-                     <p className="text-gray-500 text-sm">Design your accomplishment graphic. The preview will update here once generated.</p>
-                  </div>
-                )
-              ) : (
-                <div className="w-full max-w-lg bg-[#1a1a1c] border border-gray-800 rounded-2xl p-6 shadow-2xl animate-in zoom-in-95 duration-500 flex flex-col">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="w-10 h-10 rounded-full bg-gray-800 flex items-center justify-center border border-gray-700">
-                      <img src={LOGO_URL} className="w-6 h-6 object-contain" alt="Barq" />
-                    </div>
-                    <div>
-                      <div className="text-sm font-bold text-white">Barq Digital Team</div>
-                      <div className="text-[10px] text-gray-500 uppercase tracking-widest">LinkedIn Update</div>
-                    </div>
-                  </div>
-                  <div className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap min-h-[200px] flex-grow">
-                    {textContent || <span className="text-gray-600 italic">No text content yet...</span>}
-                  </div>
-                  <div className="mt-6 pt-4 border-t border-gray-800 flex justify-between text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-4">
-                    <span>Text-only post preview</span>
-                    <span className="text-orange-500">Ready to transmit</span>
-                  </div>
-                  
-                  <button 
-                    onClick={handlePostToLinkedIn} 
-                    disabled={posting || !textContent}
-                    className={`w-full py-3 rounded-xl font-bold text-sm tracking-wide uppercase transition-all flex items-center justify-center gap-2 ${posting ? 'bg-gray-700 text-gray-500' : 'bg-blue-700 hover:bg-blue-600 text-white shadow-lg shadow-blue-900/30'}`}
-                  >
-                    {posting ? <span className="flex items-center justify-center gap-2"><span className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span> Transmitting...</span> : "Transmit to LinkedIn"}
-                  </button>
                 </div>
               )}
             </div>
+          </div>
         </div>
 
+        {/* Footer Controls */}
+        <div className="bg-[#111] p-6 rounded-[2rem] border border-white/5 flex flex-col md:flex-row gap-6 shrink-0">
+          <div className="flex-grow">
+             <label className="text-[10px] text-gray-500 font-black uppercase tracking-widest block mb-2">Generative AI Edits (AI will transform the style)</label>
+             <input 
+               value={textInstructions} 
+               onChange={e => setTextInstructions(e.target.value)} 
+               placeholder="Example: 'Make it look like a cyberpunk poster' or 'Change background to dark navy'..."
+               className="w-full bg-black border border-white/5 rounded-2xl p-4 outline-none focus:border-orange-500/50 transition-all text-sm font-medium"
+             />
+          </div>
+          <button 
+            onClick={handleFinalSend} 
+            disabled={isSending}
+            className="px-12 py-4 bg-orange-600 text-black font-black rounded-2xl hover:scale-105 transition-all active:scale-95 disabled:opacity-50 shadow-xl shadow-orange-900/20 whitespace-nowrap"
+          >
+            {isSending ? "SYNCING CHANGES..." : "APPLY & REFRESH_"}
+          </button>
+        </div>
       </div>
+    </div>
+  );
+};
+
+const App = () => {
+  const [accomplishment, setAccomplishment] = useState("");
+  const [caption, setCaption] = useState("");
+  const [styleRef, setStyleRef] = useState<string | null>(null);
+  const [generatedImage, setGeneratedImage] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [logoBase64, setLogoBase64] = useState<string | null>(null);
+  const [notification, setNotification] = useState<{msg: string, type: 'success' | 'error'} | null>(null);
+
+  useEffect(() => {
+    fetch(LOGO_URL).then(r => r.blob()).then(b => {
+      const reader = new FileReader(); 
+      reader.onloadend = () => setLogoBase64(reader.result as string); 
+      reader.readAsDataURL(b);
+    });
+  }, []);
+
+  const handleStyleRef = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => setStyleRef(reader.result as string);
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleGenerate = async () => {
+    if (!accomplishment || !logoBase64) return;
+    setLoading(true); setGeneratedImage(null); setNotification(null);
+    try { 
+      const res = await generateSocialPost(accomplishment, logoBase64, styleRef); 
+      setGeneratedImage(res);
+      setNotification({ msg: "Graphic Forged Successfully", type: 'success' });
+      
+      // Auto-generate caption if it's empty
+      if (!caption) {
+        const aiCaption = await generateCaption(accomplishment);
+        setCaption(aiCaption);
+      }
+    } catch (e) { 
+      setNotification({ msg: "Engine Failure: Unable to generate", type: 'error' });
+    } finally { setLoading(false); }
+  };
+
+  const handleSendEdit = async (data: { editedImage?: string, textInstructions?: string, metadata?: Annotation[] }) => {
+    if (!generatedImage) return;
+    setLoading(true);
+    try {
+      const webhookResult = await sendEditToWebhook({
+        originalImage: generatedImage,
+        editedImage: data.editedImage,
+        prompt: data.textInstructions || "Creative Overlay Applied",
+        type: data.textInstructions ? 'text' : 'visual'
+      });
+      if (webhookResult) {
+        setGeneratedImage(webhookResult);
+        setNotification({ msg: "Preview Updated via Webhook", type: 'success' });
+      }
+    } catch (e) {
+      setNotification({ msg: "Edit Transmission Failed", type: 'error' });
+    } finally { setLoading(false); }
+  };
+
+  const handlePostToLinkedIn = async () => {
+    if (!generatedImage) return;
+    setLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', dataURLtoBlob(generatedImage), 'barq_post.png');
+      formData.append('caption', caption);
+      const response = await fetch(IMAGE_WEBHOOK_URL, { method: 'POST', body: formData });
+      if (response.ok) {
+        setNotification({ msg: "Transmitted to LinkedIn Pipeline", type: 'success' });
+      } else {
+        throw new Error("Pipeline rejected transmission");
+      }
+    } catch (e) {
+      setNotification({ msg: "Network Error: Broadcast failed", type: 'error' });
+    } finally { setLoading(false); }
+  };
+
+  const handleAIRefineCaption = async () => {
+    if (!accomplishment) return;
+    setLoading(true);
+    try {
+      const newCaption = await generateCaption(accomplishment);
+      setCaption(newCaption);
+      setNotification({ msg: "Caption Refined via AI", type: 'success' });
+    } catch (e) {
+      setNotification({ msg: "Caption refinement failed", type: 'error' });
+    } finally { setLoading(false); }
+  };
+
+  return (
+    <div className="min-h-screen bg-[#050505] text-white selection:bg-orange-500/30 font-['DM_Sans'] overflow-x-hidden">
+      <div className="fixed top-[-10%] left-[-10%] w-[40%] h-[40%] bg-orange-600/10 blur-[120px] rounded-full pointer-events-none" />
+      <div className="fixed bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-yellow-600/5 blur-[120px] rounded-full pointer-events-none" />
+
+      <nav className="p-8 max-w-7xl mx-auto flex justify-between items-center relative z-10">
+         <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-orange-600 rounded-lg flex items-center justify-center font-black text-black text-xl italic">B</div>
+            <span className="text-2xl font-black tracking-tighter uppercase italic">Barq<span className="text-orange-500">.</span>Digital</span>
+         </div>
+         {notification && (
+            <div className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border animate-in slide-in-from-top duration-300 ${notification.type === 'success' ? 'bg-green-500/10 border-green-500/20 text-green-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
+              {notification.msg}
+            </div>
+         )}
+      </nav>
+
+      <main className="max-w-7xl mx-auto px-8 py-12 grid lg:grid-cols-2 gap-16 items-start relative z-10">
+        <div className="space-y-12">
+           <section className="space-y-4">
+              <h2 className="text-5xl font-black italic tracking-tighter leading-none">CRAFT YOUR<br/><span className="text-orange-600">VICTORY_</span></h2>
+              <p className="text-gray-500 text-lg max-w-md">Transform your weekly engineering feats into high-impact social media assets.</p>
+           </section>
+
+           <div className="space-y-8 bg-[#0a0a0a] p-8 rounded-[2.5rem] border border-white/5 shadow-2xl relative overflow-hidden group">
+              <div className="absolute top-0 right-0 p-4 opacity-10 font-black text-6xl italic tracking-tighter pointer-events-none">INPUT</div>
+              
+              <div className="space-y-4">
+                 <div className="flex justify-between items-center">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Accomplishments</label>
+                    <button onClick={() => enhanceText(accomplishment).then(setAccomplishment)} className="text-[10px] font-black text-orange-500 hover:text-orange-400 transition-colors">POLISH TEXT_</button>
+                 </div>
+                 <textarea 
+                   value={accomplishment} 
+                   onChange={e => setAccomplishment(e.target.value)} 
+                   placeholder="Example: Resolved 42 high-priority bugs, boosted app performance by 30%..." 
+                   className="w-full h-48 bg-transparent text-xl font-medium outline-none placeholder:text-gray-800 resize-none"
+                 />
+              </div>
+
+              <div className="space-y-4">
+                 <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Style Reference (Optional)</label>
+                 <div className="flex gap-4 items-center">
+                    <label className="flex-grow flex items-center justify-center h-20 border-2 border-dashed border-white/10 rounded-2xl cursor-pointer hover:border-orange-500/50 hover:bg-orange-500/5 transition-all">
+                       <span className="text-xs text-gray-500 font-bold">{styleRef ? "IMAGE LOADED_" : "UPLOAD REFERENCE_"}</span>
+                       <input type="file" className="hidden" accept="image/*" onChange={handleStyleRef} />
+                    </label>
+                    {styleRef && <img src={styleRef} className="w-20 h-20 object-cover rounded-2xl border border-white/10" />}
+                 </div>
+              </div>
+
+              <button 
+                onClick={handleGenerate} 
+                disabled={loading} 
+                className="w-full py-6 bg-orange-600 text-black font-black uppercase italic tracking-widest rounded-3xl shadow-xl shadow-orange-900/20 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50"
+              >
+                {loading ? "PROCESSING..." : "GENERATE ASSET_"}
+              </button>
+           </div>
+        </div>
+
+        <div className="relative group">
+           <div className="absolute inset-0 bg-orange-600/5 blur-[100px] rounded-full pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-1000" />
+           
+           <div className="bg-[#0a0a0a] rounded-[3rem] border border-white/5 p-10 min-h-[600px] flex flex-col items-center justify-center shadow-[0_0_100px_rgba(0,0,0,0.5)] relative overflow-hidden">
+              {loading ? (
+                 <div className="flex flex-col items-center gap-6">
+                    <div className="w-16 h-16 border-4 border-orange-600/20 border-t-orange-500 rounded-full animate-spin" />
+                    <span className="text-[10px] font-black tracking-[0.4em] text-orange-500 animate-pulse">RENDER IN PROGRESS</span>
+                 </div>
+              ) : generatedImage ? (
+                 <div className="w-full space-y-8 animate-in zoom-in-95 duration-500">
+                    <div className="relative shadow-2xl rounded-2xl overflow-hidden border border-white/10">
+                       <img src={generatedImage} className="w-full object-contain mx-auto" style={{ aspectRatio: '4/5' }} />
+                       <div className="absolute bottom-4 right-4 bg-black/60 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 text-[10px] font-black uppercase tracking-widest text-orange-500">Preview_4:5</div>
+                    </div>
+
+                    <div className="space-y-3">
+                       <div className="flex justify-between items-center">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">LinkedIn Caption</label>
+                          <button onClick={handleAIRefineCaption} className="text-[10px] font-black text-orange-500 hover:text-orange-400 transition-colors uppercase">AI Refine_</button>
+                       </div>
+                       <textarea 
+                         value={caption} 
+                         onChange={e => setCaption(e.target.value)} 
+                         placeholder="Enter your LinkedIn caption here..."
+                         className="w-full h-32 bg-black/40 border border-white/5 rounded-2xl p-4 text-sm font-medium outline-none focus:border-orange-500/50 resize-none"
+                       />
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-4">
+                       <button onClick={() => setIsEditorOpen(true)} className="py-4 bg-[#111] hover:bg-white/5 rounded-2xl font-black text-orange-500 border border-white/5 transition-all text-xs uppercase tracking-widest">EDIT ASSET_</button>
+                       <button onClick={handleGenerate} className="py-4 bg-[#111] hover:bg-white/5 rounded-2xl font-black border border-white/5 transition-all text-xs uppercase tracking-widest">REGENERATE_</button>
+                    </div>
+
+                    <button 
+                      onClick={handlePostToLinkedIn} 
+                      className="w-full py-5 bg-[#0a66c2] hover:bg-[#004182] text-white font-black rounded-2xl flex items-center justify-center gap-3 transition-all active:scale-[0.98] shadow-lg shadow-blue-900/20"
+                    >
+                      <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/></svg>
+                      POST TO LINKEDIN
+                    </button>
+                 </div>
+              ) : (
+                 <div className="flex flex-col items-center gap-8 opacity-20">
+                    <div className="w-48 h-60 border-4 border-dashed border-white/20 rounded-[2rem]" />
+                    <span className="text-[10px] font-black uppercase tracking-[0.6em]">Await Signal</span>
+                 </div>
+              )}
+           </div>
+        </div>
+      </main>
+
+      {isEditorOpen && generatedImage && (
+        <ImageEditor image={generatedImage} onClose={() => setIsEditorOpen(false)} onSend={handleSendEdit} />
+      )}
     </div>
   );
 };
