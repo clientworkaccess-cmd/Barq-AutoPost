@@ -35,20 +35,17 @@ export async function enhanceText(text: string): Promise<string> {
 
 /**
  * Generates an engaging LinkedIn caption based on accomplishments.
+ * Follows strict user formatting requirements.
  */
-export async function generateCaption(accomplishments: string): Promise<string> {
-  if (!accomplishments) return "";
+export async function generateCaption(accomplishment: string): Promise<string> {
+  if (!accomplishment) return "";
   try {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `Write an engaging, high-energy LinkedIn caption for a post featuring these accomplishments: "${accomplishments}". 
-      Use a professional yet bold tone. 
-      Include 3-4 relevant hashtags. 
-      Keep it readable with line breaks.
-      Do not use emojis unless they are professional (like checkmarks or rockets).`,
+      contents: `Write a professional, engaging LinkedIn post caption based on this engineering accomplishment: ${accomplishment}. Keep it concise (under 200 words), include relevant hashtags at the end, and make it sound natural and authentic. Output ONLY the final caption text — no introductions, no explanations, no Markdown formatting like ** or _, no phrases like 'Here is the caption'.`,
     });
-    return response.text || "";
+    return response.text?.trim() || "";
   } catch (error) {
     console.error("Caption generation failed:", error);
     return "";
