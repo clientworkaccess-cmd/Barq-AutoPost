@@ -1,27 +1,77 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
 import { 
   generateSocialPost, 
   enhanceText, 
   generateCaption,
+  generateCaptionWithTone,
   dataURLtoBlob, 
-  generateImageEdit, 
   sendEditToWebhook 
 } from './geminiService';
 
 const LOGO_URL = "https://res.cloudinary.com/djmakoiji/image/upload/v1765978253/Barq_Digital_Logo-removebg-preview_glejpc.png";
 const IMAGE_WEBHOOK_URL = "https://n8n.srv927950.hstgr.cloud/webhook/image-linkedin";
 
-type Tool = 'text';
+type AppMode = 'image' | 'text';
+type Tone = 'Humble Brag' | 'Technical Deep Dive' | 'Storytelling' | 'Collaborative' | 'Corporate Professional';
 
-interface Annotation {
-  id: string;
-  type: Tool;
-  x: number;
-  y: number;
-  text?: string;
-  color: string;
+const TONES: Tone[] = ['Humble Brag', 'Technical Deep Dive', 'Storytelling', 'Collaborative', 'Corporate Professional'];
+
+// Helper for debouncing
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value);
+  useEffect(() => {
+    const handler = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(handler);
+  }, [value, delay]);
+  return debouncedValue;
 }
+
+const LinkedInPreview = ({ text }: { text: string }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const textLines = text.split('\n');
+  const previewLimit = 4;
+  const showSeeMore = textLines.length > previewLimit && !isExpanded;
+
+  return (
+    <div className="w-full max-w-[550px] bg-[#1a1a1a] border border-white/10 rounded-xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-500">
+      {/* Header */}
+      <div className="p-4 flex gap-3">
+        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-orange-500 to-yellow-500 flex items-center justify-center font-black text-black shrink-0">B</div>
+        <div className="min-w-0">
+          <h4 className="font-bold text-sm text-white flex items-center gap-1 truncate">Barq Digital Engineer <span className="text-gray-500 font-normal shrink-0">• 1st</span></h4>
+          <p className="text-[11px] text-gray-400 truncate">Building the future of social assets</p>
+          <p className="text-[11px] text-gray-500 flex items-center gap-1">Just now • <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm0 18c-4.411 0-8-3.589-8-8s3.589-8 8-8 8 3.589 8 8-3.589 8-8 8z"/><path d="M12.5 7H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg></p>
+        </div>
+      </div>
+      
+      {/* Content */}
+      <div className="px-4 pb-3 text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">
+        {showSeeMore ? textLines.slice(0, previewLimit).join('\n') : text}
+        {showSeeMore && (
+          <button onClick={() => setIsExpanded(true)} className="text-gray-400 hover:text-white font-bold ml-1">...see more</button>
+        )}
+      </div>
+
+      {/* Engagement Bar */}
+      <div className="px-4 py-2 flex items-center justify-between border-t border-white/5">
+        <div className="flex -space-x-1">
+          <div className="w-5 h-5 rounded-full bg-blue-600 border border-[#1a1a1a] flex items-center justify-center text-[10px]">👍</div>
+          <div className="w-5 h-5 rounded-full bg-red-500 border border-[#1a1a1a] flex items-center justify-center text-[10px]">❤️</div>
+          <div className="w-5 h-5 rounded-full bg-green-500 border border-[#1a1a1a] flex items-center justify-center text-[10px]">💡</div>
+        </div>
+        <div className="text-[11px] text-gray-500">12 comments • 4 reposts</div>
+      </div>
+
+      <div className="px-4 py-1 flex justify-around border-t border-white/5 text-gray-400 font-bold text-xs">
+        <button className="flex items-center gap-1 py-2 hover:bg-white/5 px-2 rounded-md">Like</button>
+        <button className="flex items-center gap-1 py-2 hover:bg-white/5 px-2 rounded-md">Comment</button>
+        <button className="flex items-center gap-1 py-2 hover:bg-white/5 px-2 rounded-md">Repost</button>
+        <button className="flex items-center gap-1 py-2 hover:bg-white/5 px-2 rounded-md">Send</button>
+      </div>
+    </div>
+  );
+};
 
 const ImageEditor = ({ 
   image, 
@@ -30,86 +80,12 @@ const ImageEditor = ({
 }: { 
   image: string; 
   onClose: () => void; 
-  onSend: (data: { editedImage?: string, textInstructions?: string, metadata?: Annotation[] }) => Promise<void> 
+  onSend: (data: { editedImage?: string, textInstructions?: string }) => Promise<void> 
 }) => {
-  const [color, setColor] = useState('#FF8C00');
-  const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [textInstructions, setTextInstructions] = useState("");
   const [isSending, setIsSending] = useState(false);
-  
-  const [editingTextId, setEditingTextId] = useState<string | null>(null);
-  const [tempText, setTempText] = useState("");
-
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-
   const INTERNAL_WIDTH = 1080;
   const INTERNAL_HEIGHT = 1350;
-
-  useEffect(() => {
-    const resize = () => {
-      if (!canvasRef.current || !containerRef.current) return;
-      const container = containerRef.current;
-      const rect = container.getBoundingClientRect();
-      let displayWidth = rect.width;
-      let displayHeight = rect.width * (5/4);
-      if (displayHeight > rect.height) {
-        displayHeight = rect.height;
-        displayWidth = displayHeight * (4/5);
-      }
-      canvasRef.current.width = INTERNAL_WIDTH;
-      canvasRef.current.height = INTERNAL_HEIGHT;
-      canvasRef.current.style.width = `${displayWidth}px`;
-      canvasRef.current.style.height = `${displayHeight}px`;
-      draw();
-    };
-    resize();
-    window.addEventListener('resize', resize);
-    return () => window.removeEventListener('resize', resize);
-  }, [image]);
-
-  useEffect(() => { draw(); }, [annotations, editingTextId, tempText, color]);
-
-  const draw = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const drawItem = (item: Partial<Annotation>) => {
-      ctx.strokeStyle = item.color || color;
-      ctx.fillStyle = item.color || color;
-      ctx.font = 'bold 48px DM Sans';
-      ctx.textBaseline = 'middle';
-      if (item.id === editingTextId) {
-        ctx.globalAlpha = 0.5;
-        ctx.fillText(tempText + '|', item.x!, item.y!);
-        ctx.globalAlpha = 1.0;
-      } else if (item.text) {
-        ctx.fillText(item.text, item.x!, item.y!);
-      }
-    };
-    annotations.forEach(drawItem);
-  };
-
-  const getCanvasCoords = (e: React.MouseEvent) => {
-    const rect = canvasRef.current!.getBoundingClientRect();
-    const scaleX = INTERNAL_WIDTH / rect.width;
-    const scaleY = INTERNAL_HEIGHT / rect.height;
-    return {
-      x: (e.clientX - rect.left) * scaleX,
-      y: (e.clientY - rect.top) * scaleY
-    };
-  };
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (editingTextId) return;
-    const { x, y } = getCanvasCoords(e);
-    const id = Date.now().toString();
-    setAnnotations([...annotations, { id, type: 'text', x, y, text: "", color }]);
-    setEditingTextId(id);
-    setTempText("");
-  };
 
   const handleFinalSend = async () => {
     setIsSending(true);
@@ -121,73 +97,50 @@ const ImageEditor = ({
       const img = new Image();
       img.crossOrigin = "anonymous";
       img.src = image;
-      await new Promise((resolve, reject) => {
-        img.onload = resolve;
-        img.onerror = reject;
-      });
+      await new Promise((res, rej) => { img.onload = res; img.onerror = rej; });
       ctx.drawImage(img, 0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
-      const annotationLayer = canvasRef.current!;
-      ctx.drawImage(annotationLayer, 0, 0);
-      await onSend({ 
-        editedImage: exportCanvas.toDataURL('image/png'),
-        textInstructions: textInstructions.trim() || undefined,
-        metadata: annotations
-      });
+      await onSend({ editedImage: exportCanvas.toDataURL('image/png'), textInstructions: textInstructions.trim() });
       onClose();
-    } catch (e) {
-      console.error("Export failure:", e);
-    } finally {
-      setIsSending(false);
-    }
+    } catch (e) { console.error(e); } finally { setIsSending(false); }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/98 p-4 md:p-8 overflow-hidden animate-in fade-in duration-300">
-      <div className="w-full h-full max-w-7xl flex flex-col gap-6">
-        <div className="flex justify-between items-center shrink-0">
-           <div className="flex items-center gap-4">
-             <h2 className="text-2xl font-black text-orange-500 italic tracking-tighter">BARQ EDITOR_</h2>
-             <div className="h-4 w-px bg-white/10 hidden md:block" />
-             <div className="flex items-center gap-3">
-               <span className="bg-orange-600/10 text-orange-500 px-3 py-1 rounded-md text-[10px] font-black uppercase tracking-widest border border-orange-500/20">TEXT MODE_</span>
-               <input 
-                 type="color" 
-                 value={color} 
-                 onChange={e => setColor(e.target.value)} 
-                 className="w-8 h-8 rounded-lg cursor-pointer bg-transparent border border-white/10 hover:border-orange-500 transition-colors" 
-                 title="Text Color" 
-               />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/98 p-4 md:p-12 overflow-y-auto animate-in fade-in duration-300">
+      <div className="max-w-2xl w-full bg-[#0a0a0a] border border-white/10 rounded-[2.5rem] shadow-2xl flex flex-col max-h-full overflow-hidden">
+        <div className="p-6 border-b border-white/5 flex justify-between items-center shrink-0">
+          <h2 className="text-xl font-black italic tracking-tighter text-orange-500 uppercase">Visual Editor_</h2>
+          <button onClick={onClose} className="p-2 text-gray-500 hover:text-white transition-colors uppercase text-[10px] font-black tracking-widest border border-white/5 rounded-lg">Close [Esc]</button>
+        </div>
+        
+        <div className="flex-grow p-6 overflow-y-auto space-y-6">
+          <div className="aspect-[4/5] bg-black border border-white/5 rounded-2xl overflow-hidden relative shadow-inner">
+            <img src={image} className="w-full h-full object-contain" alt="Preview" />
+          </div>
+          
+          <div className="space-y-4">
+             <div className="flex justify-between items-center">
+               <label className="text-[10px] text-gray-500 font-black uppercase tracking-widest">AI Generative Edit Prompt</label>
+               <span className="text-[9px] text-orange-500/50 font-bold uppercase tracking-tighter">Powered by Gemini Vision</span>
              </div>
-           </div>
-           <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors text-sm font-black tracking-widest">CLOSE [X]</button>
-        </div>
-        <div className="flex-grow flex items-center justify-center relative bg-[#0a0a0a] rounded-[2.5rem] border border-white/5 overflow-hidden group">
-          <div ref={containerRef} className="w-full h-full flex items-center justify-center relative">
-            <div className="relative shadow-[0_0_80px_rgba(255,140,0,0.05)] border border-white/5 overflow-hidden">
-               <img src={image} className="absolute inset-0 w-full h-full object-cover pointer-events-none" style={{ aspectRatio: '4/5' }} />
-               <canvas ref={canvasRef} onMouseDown={handleMouseDown} className="relative z-20 cursor-text touch-none" title="Click anywhere to add text" />
-               {editingTextId && (
-                <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40 backdrop-blur-[2px] animate-in fade-in duration-200">
-                  <div className="bg-[#111] p-6 rounded-3xl border border-orange-500/30 shadow-2xl w-80 translate-y-[-20%]">
-                    <p className="text-[10px] text-orange-500 font-black uppercase tracking-widest mb-3">Add Overlay Content_</p>
-                    <input autoFocus className="w-full bg-black/50 border-b-2 border-orange-600 p-3 outline-none text-white text-xl font-bold rounded-t-lg" placeholder="Type text..." value={tempText} onChange={e => setTempText(e.target.value)} onBlur={() => {
-                        if (tempText.trim() === "") setAnnotations(prev => prev.filter(a => a.id !== editingTextId));
-                        else setAnnotations(prev => prev.map(a => a.id === editingTextId ? { ...a, text: tempText } : a));
-                        setEditingTextId(null);
-                      }} onKeyDown={e => e.key === 'Enter' && e.currentTarget.blur()} />
-                    <p className="mt-3 text-[9px] text-gray-500 font-bold uppercase tracking-tighter">Press ENTER to save or click away</p>
-                  </div>
-                </div>
-              )}
-            </div>
+             <input 
+               autoFocus
+               value={textInstructions} 
+               onChange={e => setTextInstructions(e.target.value)} 
+               placeholder="Example: 'Change background to dark navy blue', 'Make it look like a tech magazine'..." 
+               className="w-full bg-black border border-white/10 rounded-xl p-4 outline-none focus:border-orange-500 text-sm transition-all shadow-xl" 
+               onKeyDown={e => e.key === 'Enter' && handleFinalSend()}
+             />
           </div>
         </div>
-        <div className="bg-[#111] p-6 rounded-[2rem] border border-white/5 flex flex-col md:flex-row gap-6 shrink-0">
-          <div className="flex-grow">
-             <label className="text-[10px] text-gray-500 font-black uppercase tracking-widest block mb-2">Generative AI Edits (AI will transform the style)</label>
-             <input value={textInstructions} onChange={e => setTextInstructions(e.target.value)} placeholder="Example: 'Make it look like a cyberpunk poster' or 'Change background to dark navy'..." className="w-full bg-black border border-white/5 rounded-2xl p-4 outline-none focus:border-orange-500/50 transition-all text-sm font-medium" />
-          </div>
-          <button onClick={handleFinalSend} disabled={isSending} className="px-12 py-4 bg-orange-600 text-black font-black rounded-2xl hover:scale-[1.02] transition-all active:scale-[0.98] disabled:opacity-50 shadow-xl shadow-orange-900/20 whitespace-nowrap">{isSending ? "SYNCING CHANGES..." : "APPLY & REFRESH_"}</button>
+
+        <div className="p-6 border-t border-white/5 bg-[#0f0f0f] shrink-0">
+          <button 
+            onClick={handleFinalSend} 
+            disabled={isSending || !textInstructions.trim()} 
+            className="w-full py-4 bg-orange-600 text-black font-black rounded-xl hover:scale-[1.01] active:scale-[0.99] transition-all disabled:opacity-50 disabled:grayscale shadow-xl shadow-orange-900/20"
+          >
+            {isSending ? "SYNCING WITH AI..." : "APPLY GENERATIVE EDITS_"}
+          </button>
         </div>
       </div>
     </div>
@@ -195,6 +148,7 @@ const ImageEditor = ({
 };
 
 const App = () => {
+  const [appMode, setAppMode] = useState<AppMode>(() => (localStorage.getItem('barq_mode') as AppMode) || 'image');
   const [accomplishment, setAccomplishment] = useState("");
   const [caption, setCaption] = useState("");
   const [styleRef, setStyleRef] = useState<string | null>(null);
@@ -203,7 +157,13 @@ const App = () => {
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [logoBase64, setLogoBase64] = useState<string | null>(null);
   const [notification, setNotification] = useState<{msg: string, type: 'success' | 'error'} | null>(null);
-  const [distMode, setDistMode] = useState<'image' | 'text'>('image');
+  const [selectedTone, setSelectedTone] = useState<Tone>('Corporate Professional');
+
+  const debouncedAccomplishment = useDebounce(accomplishment, 2000);
+
+  useEffect(() => {
+    localStorage.setItem('barq_mode', appMode);
+  }, [appMode]);
 
   useEffect(() => {
     fetch(LOGO_URL).then(r => r.blob()).then(b => {
@@ -212,6 +172,13 @@ const App = () => {
       reader.readAsDataURL(b);
     });
   }, []);
+
+  // Auto-generate caption for Text Mode
+  useEffect(() => {
+    if (appMode === 'text' && debouncedAccomplishment.length > 10 && !caption) {
+      handleAIRefineCaption();
+    }
+  }, [debouncedAccomplishment, appMode]);
 
   const handleStyleRef = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -224,81 +191,40 @@ const App = () => {
 
   const handleGenerate = async () => {
     if (!accomplishment || !logoBase64) return;
-    setLoading(true); setGeneratedImage(null); setNotification(null);
+    setLoading(true); setGeneratedImage(null);
     try { 
       const res = await generateSocialPost(accomplishment, logoBase64, styleRef); 
       setGeneratedImage(res);
       setNotification({ msg: "Graphic Forged Successfully", type: 'success' });
-      
       const aiCaption = await generateCaption(accomplishment);
       setCaption(aiCaption);
-    } catch (e) { 
-      setNotification({ msg: "Engine Failure: Unable to generate", type: 'error' });
-    } finally { setLoading(false); }
+    } catch (e) { setNotification({ msg: "Engine Failure", type: 'error' }); } finally { setLoading(false); }
   };
 
   const handleAIRefineCaption = async () => {
     if (!accomplishment) return;
     setLoading(true);
     try {
-      const newCaption = await generateCaption(accomplishment);
+      const newCaption = await generateCaptionWithTone(accomplishment, selectedTone);
       setCaption(newCaption);
-      setNotification({ msg: "Caption Refined via AI", type: 'success' });
-    } catch (e) {
-      setNotification({ msg: "Caption refinement failed", type: 'error' });
-    } finally { setLoading(false); }
-  };
-
-  const handleSendEdit = async (data: { editedImage?: string, textInstructions?: string, metadata?: Annotation[] }) => {
-    if (!generatedImage) return;
-    setLoading(true);
-    try {
-      const webhookResult = await sendEditToWebhook({
-        originalImage: generatedImage,
-        editedImage: data.editedImage,
-        prompt: data.textInstructions || "Creative Overlay Applied",
-        type: data.textInstructions ? 'text' : 'visual'
-      });
-      if (webhookResult) {
-        setGeneratedImage(webhookResult);
-        setNotification({ msg: "Preview Updated via Webhook", type: 'success' });
-      }
-    } catch (e) {
-      setNotification({ msg: "Edit Transmission Failed", type: 'error' });
-    } finally { setLoading(false); }
+      setNotification({ msg: `Caption Forged: ${selectedTone}`, type: 'success' });
+    } catch (e) { setNotification({ msg: "Caption refinement failed", type: 'error' }); } finally { setLoading(false); }
   };
 
   const handlePostToLinkedIn = async () => {
-    if (distMode === 'image' && !generatedImage) return;
+    if (appMode === 'image' && !generatedImage) return;
     setLoading(true);
     try {
       const formData = new FormData();
-      if (distMode === 'image' && generatedImage) {
+      if (appMode === 'image' && generatedImage) {
         formData.append('file', dataURLtoBlob(generatedImage), 'barq_post.png');
       }
       formData.append('caption', caption);
-      formData.append('type', distMode === 'image' ? 'image' : 'text_only');
-
+      formData.append('type', appMode === 'image' ? 'image' : 'text_only');
       const response = await fetch(IMAGE_WEBHOOK_URL, { method: 'POST', body: formData });
-      if (response.ok) {
-        setNotification({ msg: "Transmitted to LinkedIn Pipeline", type: 'success' });
-      } else {
-        throw new Error("Pipeline rejected transmission");
-      }
-    } catch (e) {
-      setNotification({ msg: "Network Error: Broadcast failed", type: 'error' });
-    } finally { setLoading(false); }
-  };
-
-  const handleDownload = () => {
-    if (!generatedImage) return;
-    const link = document.createElement('a');
-    link.href = generatedImage;
-    link.download = `barq_post_${Date.now()}.png`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    setNotification({ msg: "Download Initiated", type: 'success' });
+      if (response.ok) setNotification({ msg: "Broadcast Successful", type: 'success' });
+      else throw new Error();
+    } catch (e) { setNotification({ msg: "Network Error", type: 'error' }); } finally { setLoading(false); }
   };
 
   const handleCopy = (text: string) => {
@@ -306,182 +232,194 @@ const App = () => {
     setNotification({ msg: "Copied to Clipboard", type: 'success' });
   };
 
-  const insertText = (tag: string) => {
-    // Simple helper to append text/formatting
-    setCaption(prev => prev + ' ' + tag);
-  };
-
   return (
-    <div className="min-h-screen bg-[#050505] text-white selection:bg-orange-500/30 font-['DM_Sans'] overflow-x-hidden">
-      <div className="fixed top-[-10%] left-[-10%] w-[40%] h-[40%] bg-orange-600/10 blur-[120px] rounded-full pointer-events-none" />
-      <div className="fixed bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-yellow-600/5 blur-[120px] rounded-full pointer-events-none" />
+    <div className="min-h-screen bg-[#050505] text-white selection:bg-orange-500/30 font-['DM_Sans'] overflow-x-hidden transition-colors duration-700 pb-20">
+      <div className={`fixed top-[-10%] left-[-10%] w-[40%] h-[40%] blur-[120px] rounded-full pointer-events-none transition-colors duration-700 ${appMode === 'image' ? 'bg-orange-600/10' : 'bg-yellow-600/10'}`} />
+      <div className={`fixed bottom-[-10%] right-[-10%] w-[40%] h-[40%] blur-[120px] rounded-full pointer-events-none transition-colors duration-700 ${appMode === 'image' ? 'bg-orange-600/5' : 'bg-yellow-600/5'}`} />
 
       <nav className="p-8 max-w-7xl mx-auto flex justify-between items-center relative z-10">
          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-orange-600 rounded-lg flex items-center justify-center font-black text-black text-xl italic">B</div>
-            <span className="text-2xl font-black tracking-tighter uppercase italic">Barq<span className="text-orange-500">.</span>Digital</span>
+            <div className={`w-10 h-10 rounded-lg flex items-center justify-center font-black text-black text-xl italic transition-colors duration-700 ${appMode === 'image' ? 'bg-orange-600' : 'bg-yellow-600'}`}>B</div>
+            <span className="text-2xl font-black tracking-tighter uppercase italic">Barq<span className={appMode === 'image' ? 'text-orange-500' : 'text-yellow-500'}>.</span>Digital</span>
          </div>
+
+         <div className="flex bg-black/50 p-1 rounded-xl border border-white/10 shrink-0">
+           <button onClick={() => setAppMode('image')} className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${appMode === 'image' ? 'bg-orange-600 text-black' : 'text-gray-500 hover:text-white'}`}>Image Mode_</button>
+           <button onClick={() => setAppMode('text')} className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${appMode === 'text' ? 'bg-yellow-600 text-black' : 'text-gray-500 hover:text-white'}`}>Text Mode_</button>
+         </div>
+
          {notification && (
-            <div className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border animate-in slide-in-from-top duration-300 ${notification.type === 'success' ? 'bg-green-500/10 border-green-500/20 text-green-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
+            <div className={`hidden lg:block px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border animate-in slide-in-from-top duration-300 ${notification.type === 'success' ? 'bg-green-500/10 border-green-500/20 text-green-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
               {notification.msg}
             </div>
          )}
       </nav>
 
-      <main className="max-w-7xl mx-auto px-8 py-12 grid lg:grid-cols-2 gap-16 items-start relative z-10">
-        <div className="space-y-12">
-           <section className="space-y-4">
-              <h2 className="text-5xl font-black italic tracking-tighter leading-none">CRAFT YOUR<br/><span className="text-orange-600">VICTORY_</span></h2>
-              <p className="text-gray-500 text-lg max-w-md">Transform engineering feats into social media impact.</p>
-           </section>
+      <main className="max-w-7xl mx-auto px-8 py-4 relative z-10">
+        {appMode === 'image' ? (
+          <div className="grid lg:grid-cols-2 gap-16 items-start">
+            <div className="space-y-8 animate-in slide-in-from-left duration-500">
+               <section className="space-y-4">
+                  <h2 className="text-5xl font-black italic tracking-tighter leading-none uppercase">Forge Your<br/><span className="text-orange-600">Visuals_</span></h2>
+                  <p className="text-gray-500 text-lg max-w-md">Professional engineering assets created instantly.</p>
+               </section>
 
-           <div className="space-y-8 bg-[#0a0a0a] p-8 rounded-[2.5rem] border border-white/5 shadow-2xl relative overflow-hidden group">
-              <div className="absolute top-0 right-0 p-4 opacity-10 font-black text-6xl italic tracking-tighter pointer-events-none">FORGE</div>
-              
-              <div className="space-y-4">
-                 <div className="flex justify-between items-center">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Engineering Accomplishments</label>
-                    <button onClick={() => enhanceText(accomplishment).then(setAccomplishment)} className="text-[10px] font-black text-orange-500 hover:text-orange-400 transition-colors">POLISH TEXT_</button>
-                 </div>
-                 <textarea 
-                   value={accomplishment} 
-                   onChange={e => setAccomplishment(e.target.value)} 
-                   placeholder="Example: Resolved 42 high-priority bugs, boosted app performance by 30%..." 
-                   className="w-full h-48 bg-transparent text-xl font-medium outline-none placeholder:text-gray-800 resize-none border-b border-white/5 focus:border-orange-500/30 transition-colors"
-                 />
-              </div>
+               <div className="space-y-6 bg-[#0a0a0a] p-8 rounded-[2.5rem] border border-white/5 shadow-2xl">
+                  <div className="space-y-4">
+                     <div className="flex justify-between items-center">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Accomplishments</label>
+                        <button onClick={() => enhanceText(accomplishment).then(setAccomplishment)} className="text-[10px] font-black text-orange-500 hover:text-orange-400 transition-colors">POLISH_</button>
+                     </div>
+                     <textarea 
+                       value={accomplishment} 
+                       onChange={e => setAccomplishment(e.target.value)} 
+                       placeholder="What did you ship? e.g., 'Reduced Latency by 30%'" 
+                       className="w-full h-32 bg-transparent text-xl font-medium outline-none placeholder:text-gray-800 border-b border-white/5 focus:border-orange-500/30 resize-none"
+                     />
+                  </div>
+                  <div className="space-y-4">
+                     <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Style Match (Image Ref)</label>
+                     <label className="flex items-center justify-center h-20 border-2 border-dashed border-white/10 rounded-2xl cursor-pointer hover:border-orange-500/50 hover:bg-orange-500/5 transition-all">
+                        <span className="text-xs text-gray-500 font-bold uppercase">{styleRef ? "REF UPLOADED_" : "DRAG STYLE REF_"}</span>
+                        <input type="file" className="hidden" accept="image/*" onChange={handleStyleRef} />
+                     </label>
+                  </div>
+                  <button onClick={handleGenerate} disabled={loading} className="w-full py-6 bg-orange-600 text-black font-black uppercase tracking-widest rounded-3xl hover:scale-[1.02] active:scale-[0.98] transition-all shadow-xl shadow-orange-900/10">
+                    {loading ? "INITIALIZING FORGE..." : "GENERATE VISUAL_"}
+                  </button>
+               </div>
+            </div>
 
-              <div className="space-y-4">
-                 <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Style Reference (Optional)</label>
-                 <div className="flex gap-4 items-center">
-                    <label className="flex-grow flex items-center justify-center h-20 border-2 border-dashed border-white/10 rounded-2xl cursor-pointer hover:border-orange-500/50 hover:bg-orange-500/5 transition-all">
-                       <span className="text-xs text-gray-500 font-bold">{styleRef ? "REF LOADED_" : "UPLOAD STYLE_"}</span>
-                       <input type="file" className="hidden" accept="image/*" onChange={handleStyleRef} />
-                    </label>
-                    {styleRef && <img src={styleRef} className="w-20 h-20 object-cover rounded-2xl border border-white/10" />}
-                 </div>
-              </div>
-
-              <button 
-                onClick={handleGenerate} 
-                disabled={loading} 
-                className="w-full py-6 bg-orange-600 text-black font-black uppercase italic tracking-widest rounded-3xl shadow-xl shadow-orange-900/20 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50"
-              >
-                {loading ? "PROCESSING..." : "GENERATE ASSET_"}
-              </button>
-           </div>
-        </div>
-
-        <div className="relative group">
-           <div className="absolute inset-0 bg-orange-600/5 blur-[100px] rounded-full pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-1000" />
-           
-           <div className="bg-[#0a0a0a] rounded-[3rem] border border-white/5 p-8 min-h-[700px] flex flex-col shadow-[0_0_100px_rgba(0,0,0,0.5)] relative overflow-hidden">
-              {/* Mode Tabs */}
-              <div className="flex gap-1 bg-black/50 p-1 rounded-2xl border border-white/5 mb-8 shrink-0">
-                 <button 
-                   onClick={() => setDistMode('image')}
-                   className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${distMode === 'image' ? 'bg-orange-600 text-black' : 'text-gray-500 hover:text-white'}`}
-                 >
-                   With Image_
-                 </button>
-                 <button 
-                   onClick={() => setDistMode('text')}
-                   className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${distMode === 'text' ? 'bg-yellow-600 text-black' : 'text-gray-500 hover:text-white'}`}
-                 >
-                   Text Only_
-                 </button>
-              </div>
-
+            <div className="bg-[#0a0a0a] rounded-[3rem] border border-white/5 p-8 min-h-[700px] flex flex-col items-center justify-center relative shadow-inner overflow-hidden animate-in slide-in-from-right duration-500">
               {loading ? (
-                 <div className="flex-grow flex flex-col items-center justify-center gap-6">
-                    <div className="w-16 h-16 border-4 border-orange-600/20 border-t-orange-500 rounded-full animate-spin" />
-                    <span className="text-[10px] font-black tracking-[0.4em] text-orange-500 animate-pulse uppercase">Assembling Unit...</span>
-                 </div>
-              ) : distMode === 'image' ? (
-                 generatedImage ? (
-                    <div className="flex-grow flex flex-col gap-6 animate-in zoom-in-95 duration-500">
-                       <div className="relative shadow-2xl rounded-2xl overflow-hidden border border-white/10 shrink-0">
-                          <img src={generatedImage} className="w-full object-contain mx-auto" style={{ aspectRatio: '4/5' }} />
-                          <button 
-                            onClick={() => setIsEditorOpen(true)}
-                            className="absolute top-4 right-4 bg-orange-600/80 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 text-[10px] font-black uppercase text-black hover:bg-orange-500 transition-all"
-                          >
-                            Edit Graphic_
-                          </button>
-                       </div>
-
-                       <div className="space-y-3">
-                          <div className="flex justify-between items-center">
-                             <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">LinkedIn Caption</label>
-                             <button onClick={handleAIRefineCaption} className="text-[10px] font-black text-orange-500 uppercase">AI Refine_</button>
-                          </div>
-                          <textarea 
-                            value={caption} 
-                            onChange={e => setCaption(e.target.value)} 
-                            className="w-full h-32 bg-black/40 border border-white/5 rounded-2xl p-4 text-sm font-medium outline-none focus:border-orange-500/50 resize-none"
-                            placeholder="Final caption here..."
-                          />
-                       </div>
-
-                       <div className="grid grid-cols-2 gap-4">
-                          <button onClick={handleDownload} className="py-4 bg-[#111] hover:bg-white/5 rounded-2xl font-black text-xs border border-white/5 transition-all uppercase tracking-widest">Download PNG_</button>
-                          <button onClick={() => handleCopy(caption)} className="py-4 bg-[#111] hover:bg-white/5 rounded-2xl font-black text-xs border border-white/5 transition-all uppercase tracking-widest">Copy Caption_</button>
-                       </div>
-
-                       <button 
-                         onClick={handlePostToLinkedIn} 
-                         className="w-full py-5 bg-[#0a66c2] hover:bg-[#004182] text-white font-black rounded-2xl flex items-center justify-center gap-3 transition-all active:scale-[0.98] shadow-lg shadow-blue-900/20"
-                       >
-                         POST IMAGE TO LINKEDIN
+                <div className="flex flex-col items-center gap-6">
+                  <div className="w-16 h-16 border-4 border-orange-600/20 border-t-orange-500 rounded-full animate-spin" />
+                  <span className="text-[10px] font-black tracking-[0.4em] text-orange-500 animate-pulse">CRAFTING PIXELS...</span>
+                </div>
+              ) : generatedImage ? (
+                <div className="w-full space-y-6 flex flex-col h-full">
+                  <div className="relative shadow-2xl rounded-2xl overflow-hidden border border-white/5 aspect-[4/5] bg-black">
+                    <img src={generatedImage} className="w-full h-full object-contain" alt="Generated" />
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                       <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">LinkedIn Caption</label>
+                       <button onClick={handleAIRefineCaption} className="text-[10px] font-black text-orange-500 uppercase flex items-center gap-1 hover:text-orange-400">
+                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                         REGENERATE_
                        </button>
                     </div>
-                 ) : (
-                    <div className="flex-grow flex flex-col items-center justify-center gap-8 opacity-20">
-                       <div className="w-48 h-60 border-4 border-dashed border-white/20 rounded-[2rem]" />
-                       <span className="text-[10px] font-black uppercase tracking-[0.6em]">Awaiting Generation</span>
-                    </div>
-                 )
+                    <textarea value={caption} onChange={e => setCaption(e.target.value)} className="w-full h-24 bg-black/40 border border-white/5 rounded-2xl p-4 text-sm resize-none focus:border-orange-500/50" placeholder="Caption..." />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 shrink-0">
+                    <button onClick={() => setIsEditorOpen(true)} className="py-4 bg-[#111] border border-white/10 rounded-2xl text-[10px] font-black uppercase tracking-widest text-orange-500 hover:bg-orange-500/5 transition-all">EDIT GRAPHIC_</button>
+                    <button onClick={handleGenerate} className="py-4 bg-[#111] border border-white/10 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-white/5 transition-all">NEW VERSION_</button>
+                  </div>
+                  
+                  <button onClick={handlePostToLinkedIn} className="w-full py-5 bg-[#0a66c2] hover:bg-[#004182] text-white font-black rounded-2xl shadow-xl shadow-blue-900/20 transition-all active:scale-[0.98] uppercase tracking-widest text-xs">POST TO LINKEDIN</button>
+                </div>
               ) : (
-                <div className="flex-grow flex flex-col gap-6 animate-in slide-in-from-right-4 duration-500">
-                   <div className="flex-grow bg-black/40 border border-white/5 rounded-[2.5rem] p-8 relative flex flex-col">
-                      <div className="flex justify-between items-center mb-6">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-yellow-600">Post Body (Text Only)</label>
-                        <div className="flex gap-2">
-                           <button onClick={() => insertText('✅')} className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors">✅</button>
-                           <button onClick={() => insertText('🚀')} className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors">🚀</button>
-                           <button onClick={() => insertText('🔥')} className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors">🔥</button>
-                        </div>
-                      </div>
-                      <textarea 
-                         value={caption} 
-                         onChange={e => setCaption(e.target.value)} 
-                         className="flex-grow w-full bg-transparent text-lg font-medium outline-none placeholder:text-gray-800 resize-none leading-relaxed"
-                         placeholder="Paste your content or click AI generate on the left forge..."
-                      />
-                      <div className="mt-4 pt-4 border-t border-white/5 flex justify-between items-center">
-                         <span className="text-[10px] font-black text-gray-600 uppercase tracking-widest">{caption.length} Characters</span>
-                         <button onClick={handleAIRefineCaption} className="text-[10px] font-black text-yellow-600 uppercase tracking-widest">AI RE-WRITE_</button>
-                      </div>
-                   </div>
-
-                   <div className="grid grid-cols-1 gap-4">
-                      <button onClick={() => handleCopy(caption)} className="py-4 bg-[#111] hover:bg-white/5 rounded-2xl font-black text-xs border border-white/5 transition-all uppercase tracking-widest">Copy To Clipboard_</button>
-                   </div>
-
-                   <button 
-                     onClick={handlePostToLinkedIn} 
-                     className="w-full py-5 bg-[#0a66c2] hover:bg-[#004182] text-white font-black rounded-2xl flex items-center justify-center gap-3 transition-all active:scale-[0.98] shadow-lg shadow-blue-900/20"
-                   >
-                     POST TEXT TO LINKEDIN
-                   </button>
+                <div className="opacity-10 text-center space-y-4">
+                  <div className="w-48 h-60 border-4 border-dashed border-white/20 rounded-3xl mx-auto flex items-center justify-center">
+                    <span className="text-[40px] font-black">?</span>
+                  </div>
+                  <span className="text-[10px] font-black uppercase tracking-[0.5em]">Forge Empty</span>
                 </div>
               )}
-           </div>
-        </div>
+            </div>
+          </div>
+        ) : (
+          /* Text Mode Flow */
+          <div className="max-w-4xl mx-auto space-y-12 animate-in fade-in slide-in-from-bottom-8 duration-500">
+             <section className="text-center space-y-4">
+                <h2 className="text-5xl font-black italic tracking-tighter uppercase">Craft Your <span className="text-yellow-500">Narrative_</span></h2>
+                <p className="text-gray-500 text-lg">AI-powered text optimized for maximum engagement.</p>
+             </section>
+
+             <div className="bg-[#0a0a0a] border border-white/5 rounded-[3rem] p-8 md:p-12 shadow-2xl space-y-10">
+                <div className="space-y-4">
+                   <div className="flex justify-between items-center">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Raw Source Material</label>
+                      <span className="text-[9px] text-yellow-500/40 font-bold uppercase tracking-widest">Real-time drafting...</span>
+                   </div>
+                   <textarea 
+                     value={accomplishment} 
+                     onChange={e => setAccomplishment(e.target.value)} 
+                     placeholder="Paste notes, logs, or raw thoughts here..." 
+                     className="w-full h-40 bg-black/50 border border-white/5 rounded-2xl p-6 text-xl font-medium outline-none focus:border-yellow-500/30 resize-none transition-all"
+                   />
+                </div>
+
+                <div className="space-y-6">
+                   <div className="flex justify-between items-center">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Select Narrative Voice</label>
+                      <button onClick={handleAIRefineCaption} disabled={loading || !accomplishment} className="text-[10px] font-black text-yellow-500 hover:text-yellow-400 transition-colors uppercase">RE-FORGE TEXT_</button>
+                   </div>
+                   <div className="flex flex-wrap gap-2">
+                      {TONES.map(t => (
+                        <button 
+                          key={t}
+                          onClick={() => setSelectedTone(t)}
+                          className={`px-4 py-2 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all border ${selectedTone === t ? 'bg-yellow-600 text-black border-yellow-600' : 'bg-black/40 text-gray-400 border-white/5 hover:border-white/20'}`}
+                        >
+                          {t}
+                        </button>
+                      ))}
+                   </div>
+                </div>
+
+                <div className="grid lg:grid-cols-2 gap-12 items-start">
+                   <div className="space-y-4">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Final Edit Panel</label>
+                      <textarea 
+                        value={caption} 
+                        onChange={e => setCaption(e.target.value)} 
+                        className="w-full h-80 bg-black/30 border border-white/5 rounded-2xl p-6 text-sm leading-relaxed outline-none focus:border-yellow-500/30 resize-none font-medium transition-all"
+                      />
+                      <button onClick={() => handleCopy(caption)} className="w-full py-3 bg-[#111] border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-white/5 transition-all">Copy Post Text_</button>
+                   </div>
+
+                   <div className="space-y-4">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">LinkedIn Feed Preview</label>
+                      <div className="sticky top-8">
+                        <LinkedInPreview text={caption || "Drafting in progress..."} />
+                      </div>
+                   </div>
+                </div>
+
+                <button 
+                  onClick={handlePostToLinkedIn} 
+                  disabled={loading || !caption}
+                  className="w-full py-6 bg-[#0a66c2] hover:bg-[#004182] text-white font-black rounded-3xl transition-all shadow-xl shadow-blue-900/20 uppercase tracking-widest text-sm"
+                >
+                  {loading ? "COMMUNICATING WITH PIPELINE..." : "POST TEXT TO LINKEDIN_"}
+                </button>
+             </div>
+          </div>
+        )}
       </main>
 
       {isEditorOpen && generatedImage && (
-        <ImageEditor image={generatedImage} onClose={() => setIsEditorOpen(false)} onSend={handleSendEdit} />
+        <ImageEditor 
+          image={generatedImage} 
+          onClose={() => setIsEditorOpen(false)} 
+          onSend={async (data) => {
+            setLoading(true);
+            try {
+              const res = await sendEditToWebhook({ originalImage: generatedImage, prompt: data.textInstructions || "Edit", type: 'visual' });
+              if (res) {
+                setGeneratedImage(res);
+                setNotification({ msg: "AI Edit Complete", type: 'success' });
+              }
+            } catch (err) {
+              setNotification({ msg: "AI Edit Failed", type: 'error' });
+            } finally {
+              setLoading(false);
+            }
+          }} 
+        />
       )}
     </div>
   );

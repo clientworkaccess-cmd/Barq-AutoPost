@@ -35,15 +35,30 @@ export async function enhanceText(text: string): Promise<string> {
 
 /**
  * Generates an engaging LinkedIn caption based on accomplishments.
- * Follows strict user formatting requirements.
  */
 export async function generateCaption(accomplishment: string): Promise<string> {
+  return generateCaptionWithTone(accomplishment, 'Corporate Professional');
+}
+
+/**
+ * Specialized caption generation with tone support for Text Mode.
+ */
+export async function generateCaptionWithTone(accomplishment: string, tone: string): Promise<string> {
   if (!accomplishment) return "";
   try {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `Write a professional, engaging LinkedIn post caption based on this engineering accomplishment: ${accomplishment}. Keep it concise (under 200 words), include relevant hashtags at the end, and make it sound natural and authentic. Output ONLY the final caption text — no introductions, no explanations, no Markdown formatting like ** or _, no phrases like 'Here is the caption'.`,
+      contents: `Write a professional, engaging LinkedIn post caption based on this engineering accomplishment: ${accomplishment}. 
+      Tone: ${tone}.
+      Rules:
+      1. Keep it concise (under 200 words).
+      2. Include 3-4 relevant hashtags at the end.
+      3. Make it sound natural and authentic.
+      4. Output ONLY the final caption text.
+      5. NO introductions (like "Here is the caption").
+      6. NO explanations.
+      7. NO Markdown formatting (no **, no _, no # at the start of lines unless it's a hashtag).`,
     });
     return response.text?.trim() || "";
   } catch (error) {
@@ -82,32 +97,6 @@ export async function generateSocialPost(
     reader.onloadend = () => resolve(reader.result as string);
     reader.readAsDataURL(blob);
   });
-}
-
-/**
- * Generates a new image based on text edit instructions.
- */
-export async function generateImageEdit(originalImageBase64: string, instructions: string): Promise<string> {
-  try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
-    const mimeType = originalImageBase64.split(';')[0].split(':')[1];
-    const base64Data = originalImageBase64.split(',')[1];
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
-      contents: {
-        parts: [
-          { inlineData: { data: base64Data, mimeType } },
-          { text: `Modify this 4:5 social media post according to these instructions: ${instructions}. Maintain the aspect ratio and overall branding.` }
-        ]
-      }
-    });
-    const part = response.candidates![0].content.parts.find(p => p.inlineData);
-    if (!part) throw new Error("No image returned from Gemini Edit.");
-    return `data:${part.inlineData!.mimeType};base64,${part.inlineData!.data}`;
-  } catch (error) {
-    console.error("Edit generation failed:", error);
-    throw error;
-  }
 }
 
 /**
