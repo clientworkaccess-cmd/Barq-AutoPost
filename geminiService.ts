@@ -53,7 +53,7 @@ export async function generateCaptionWithTone(accomplishment: string, tone: stri
       Tone: ${tone}.
       Rules:
       1. Keep it concise (under 200 words).
-      2. Include 3-4 relevant hashtags at the end.
+      2. Include 3-4 relevant hashtags at the end including #BarqDigital.
       3. Make it sound natural and authentic.
       4. Output ONLY the final caption text.
       5. NO introductions (like "Here is the caption").
