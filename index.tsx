@@ -152,6 +152,7 @@ const App = () => {
   const [accomplishment, setAccomplishment] = useState("");
   const [caption, setCaption] = useState("");
   const [styleRef, setStyleRef] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
@@ -180,13 +181,44 @@ const App = () => {
     }
   }, [debouncedAccomplishment, appMode]);
 
+  const processFile = (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      setNotification({ msg: "Please upload an image file", type: 'error' });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onloadend = () => setStyleRef(reader.result as string);
+    reader.readAsDataURL(file);
+  };
+
   const handleStyleRef = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => setStyleRef(reader.result as string);
-      reader.readAsDataURL(file);
-    }
+    if (file) processFile(file);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) processFile(file);
+  };
+
+  const handleRemoveStyleRef = () => {
+    setStyleRef(null);
+    setNotification({ msg: "Style Reference Cleared", type: 'success' });
   };
 
   const handleGenerate = async () => {
@@ -278,11 +310,44 @@ const App = () => {
                      />
                   </div>
                   <div className="space-y-4">
-                     <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Style Match (Image Ref)</label>
-                     <label className="flex items-center justify-center h-20 border-2 border-dashed border-white/10 rounded-2xl cursor-pointer hover:border-orange-500/50 hover:bg-orange-500/5 transition-all">
-                        <span className="text-xs text-gray-500 font-bold uppercase">{styleRef ? "REF UPLOADED_" : "DRAG STYLE REF_"}</span>
-                        <input type="file" className="hidden" accept="image/*" onChange={handleStyleRef} />
-                     </label>
+                     <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Style Match (Drag & Drop Ref)</label>
+                     <div className="flex gap-4 items-center h-28">
+                       {styleRef ? (
+                         <div className="relative w-28 h-28 rounded-2xl overflow-hidden border border-orange-500 group animate-in zoom-in-95">
+                           <img src={styleRef} className="w-full h-full object-cover" alt="Style Ref" />
+                           <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                             <button 
+                               onClick={handleRemoveStyleRef}
+                               className="bg-red-600 text-white rounded-full p-2 hover:scale-110 transition-transform shadow-xl"
+                               title="Remove Style Reference"
+                             >
+                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" /></svg>
+                             </button>
+                           </div>
+                         </div>
+                       ) : (
+                         <div 
+                           onDragOver={handleDragOver}
+                           onDragLeave={handleDragLeave}
+                           onDrop={handleDrop}
+                           className={`flex-grow flex items-center justify-center h-full border-2 border-dashed rounded-2xl cursor-pointer transition-all group relative ${isDragging ? 'border-orange-500 bg-orange-500/10 scale-[1.02]' : 'border-white/10 hover:border-orange-500/50 hover:bg-orange-500/5'}`}
+                         >
+                            <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" accept="image/*" onChange={handleStyleRef} />
+                            <div className="text-center">
+                              <span className={`text-xs font-bold uppercase transition-colors ${isDragging ? 'text-orange-500' : 'text-gray-500 group-hover:text-orange-500'}`}>
+                                {isDragging ? "DROP IMAGE NOW_" : "DRAG & DROP STYLE REF_"}
+                              </span>
+                              <p className="text-[8px] text-gray-600 uppercase mt-1 tracking-widest">or click to browse</p>
+                            </div>
+                         </div>
+                       )}
+                       {styleRef && (
+                         <div className="flex-grow flex flex-col justify-center">
+                           <span className="text-[10px] font-black text-orange-500 uppercase tracking-widest">Active Reference_</span>
+                           <p className="text-[9px] text-gray-500 uppercase mt-1">AI will replicate this aesthetic exactly.</p>
+                         </div>
+                       )}
+                     </div>
                   </div>
                   <button onClick={handleGenerate} disabled={loading} className="w-full py-6 bg-orange-600 text-black font-black uppercase tracking-widest rounded-3xl hover:scale-[1.02] active:scale-[0.98] transition-all shadow-xl shadow-orange-900/10">
                     {loading ? "INITIALIZING FORGE..." : "GENERATE VISUAL_"}

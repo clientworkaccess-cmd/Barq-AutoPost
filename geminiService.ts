@@ -77,11 +77,24 @@ export async function generateSocialPost(
 ): Promise<string> {
   const WEBHOOK_URL = "https://n8n.srv927950.hstgr.cloud/webhook/image-get";
   
-  const promptText = `A high-end corporate announcement graphic in strict 4:5 aspect ratio. 
-  Background: Deep orange and yellow gradient with subtle dark textures. 
-  Foreground: Bold white professional text in the center: "${accomplishment}". 
-  Requirement: Logo must be at the top center. 
-  ${styleRef ? "Style match: Refer to the provided style image for aesthetics." : "Aesthetic: Modern, clean, professional engineering style."}`;
+  let promptText = "";
+  
+  if (styleRef) {
+  promptText = `A luxurious, high-end professional social media milestone graphic in strict 4:5 portrait aspect ratio.
+CENTRAL CONTENT: Prominently centered, bold elegant text reading "${accomplishment}" in a clean, modern sans-serif typeface with refined kerning and subtle outer glow for maximum impact and readability.
+LOGO: Precisely positioned at the top center, appropriately scaled (15-20% of image height) to maintain perfect compositional balance and strong brand presence.
+CRITICAL STYLE TRANSFER: This is an exact one-to-one visual replication. The color palette, gradients, lighting, shadows, highlights, textures, depth, mood, atmosphere, and overall artistic treatment MUST IDENTICALLY MATCH the attached reference image. Replicate every nuance with precision—no creative deviations allowed. Achieve the same level of sophistication and professional excellence as the reference.`;
+} else {
+promptText = `A sophisticated, premium corporate achievement announcement graphic in strict 4:5 portrait aspect ratio.
+BACKGROUND: Rich, immersive gradient transitioning from deep vibrant orange at the edges to warm glowing amber yellow in the center, enhanced with subtle dark textured overlays (faint geometric patterns or brushed metallic grain) for tactile depth and luxury.
+MAIN TEXT: Bold, pristine white "${accomplishment}" centered both vertically and horizontally. Use a modern geometric sans-serif font (e.g., similar to Futura Bold, Montserrat ExtraBold, or Helvetica Neue Bold) with excellent letter-spacing, subtle drop shadow or soft outer glow for elevated contrast and celebratory presence.
+
+CREATIVE ACCENTS:
+- Gentle radiant light beams or soft golden lens flares emanating subtly from behind the text to convey achievement and energy.
+- Minimalist abstract gold or white geometric lines/particles floating elegantly in the background for a sense of innovation and precision engineering.
+LOGO: Elegantly placed at the top center in white (or with a subtle golden accent to complement the palette), sized proportionally for confident brand visibility without competing with the main message.
+OVERALL STYLE: Ultra-modern, confident, and impeccably professional—evoking innovation, excellence, and milestone celebration. High contrast, razor-sharp details, premium production quality ideal for LinkedIn, executive social channels, and corporate branding. Clean, powerful, and visually striking.`;
+}
 
   const formData = new FormData();
   formData.append('prompt', promptText);
