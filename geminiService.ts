@@ -92,7 +92,7 @@ MAIN TEXT: Bold, pristine white "${accomplishment}" centered both vertically and
 CREATIVE ACCENTS:
 - Gentle radiant light beams or soft golden lens flares emanating subtly from behind the text to convey achievement and energy.
 - Minimalist abstract gold or white geometric lines/particles floating elegantly in the background for a sense of innovation and precision engineering.
-LOGO: Elegantly placed at the top center in white (or with a subtle golden accent to complement the palette), sized proportionally for confident brand visibility without competing with the main message.
+LOGO: Precisely positioned at the top center, appropriately scaled (15-20% of image height) to maintain perfect compositional balance and strong brand presence.
 OVERALL STYLE: Ultra-modern, confident, and impeccably professional—evoking innovation, excellence, and milestone celebration. High contrast, razor-sharp details, premium production quality ideal for LinkedIn, executive social channels, and corporate branding. Clean, powerful, and visually striking.`;
 }
 

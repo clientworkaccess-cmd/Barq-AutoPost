@@ -34,7 +34,7 @@ const LinkedInPreview = ({ text }: { text: string }) => {
   const showSeeMore = textLines.length > previewLimit && !isExpanded;
 
   return (
-    <div className="w-full max-w-[550px] bg-[#1a1a1a] border border-white/10 rounded-xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-500">
+    <div className="w-full max-w-full bg-[#1a1a1a] border border-white/10 rounded-xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-500">
       {/* Header */}
       <div className="p-4 flex gap-3">
         <div className="w-12 h-12 rounded-full bg-gradient-to-br from-orange-500 to-yellow-500 flex items-center justify-center font-black text-black shrink-0">B</div>
@@ -174,12 +174,12 @@ const App = () => {
     });
   }, []);
 
-  // Auto-generate caption for Text Mode
+  // Auto-generate caption for Text Mode on change
   useEffect(() => {
-    if (appMode === 'text' && debouncedAccomplishment.length > 10 && !caption) {
+    if (appMode === 'text' && debouncedAccomplishment.trim().length > 10) {
       handleAIRefineCaption();
     }
-  }, [debouncedAccomplishment, appMode]);
+  }, [debouncedAccomplishment, appMode, selectedTone]);
 
   const processFile = (file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -239,7 +239,7 @@ const App = () => {
     try {
       const newCaption = await generateCaptionWithTone(accomplishment, selectedTone);
       setCaption(newCaption);
-      setNotification({ msg: `Caption Forged: ${selectedTone}`, type: 'success' });
+      setNotification({ msg: `Narrative Refined: ${selectedTone}`, type: 'success' });
     } catch (e) { setNotification({ msg: "Caption refinement failed", type: 'error' }); } finally { setLoading(false); }
   };
 
@@ -396,8 +396,8 @@ const App = () => {
             </div>
           </div>
         ) : (
-          /* Text Mode Flow */
-          <div className="max-w-4xl mx-auto space-y-12 animate-in fade-in slide-in-from-bottom-8 duration-500">
+          /* Text Mode Flow - Wide Layout */
+          <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-500">
              <section className="text-center space-y-4">
                 <h2 className="text-5xl font-black italic tracking-tighter uppercase">Craft Your <span className="text-yellow-500">Narrative_</span></h2>
                 <p className="text-gray-500 text-lg">AI-powered text optimized for maximum engagement.</p>
@@ -407,20 +407,22 @@ const App = () => {
                 <div className="space-y-4">
                    <div className="flex justify-between items-center">
                       <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Raw Source Material</label>
-                      <span className="text-[9px] text-yellow-500/40 font-bold uppercase tracking-widest">Real-time drafting...</span>
+                      <div className="flex items-center gap-2">
+                        {loading && <div className="w-3 h-3 border-2 border-yellow-500/20 border-t-yellow-500 rounded-full animate-spin" />}
+                      </div>
                    </div>
                    <textarea 
                      value={accomplishment} 
                      onChange={e => setAccomplishment(e.target.value)} 
                      placeholder="Paste notes, logs, or raw thoughts here..." 
-                     className="w-full h-40 bg-black/50 border border-white/5 rounded-2xl p-6 text-xl font-medium outline-none focus:border-yellow-500/30 resize-none transition-all"
+                     className="w-full h-32 bg-black/50 border border-white/5 rounded-2xl p-6 text-xl font-medium outline-none focus:border-yellow-500/30 resize-none transition-all"
                    />
                 </div>
 
                 <div className="space-y-6">
                    <div className="flex justify-between items-center">
                       <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Select Narrative Voice</label>
-                      <button onClick={handleAIRefineCaption} disabled={loading || !accomplishment} className="text-[10px] font-black text-yellow-500 hover:text-yellow-400 transition-colors uppercase">RE-FORGE TEXT_</button>
+                      <button onClick={handleAIRefineCaption} disabled={loading || !accomplishment} className="text-[10px] font-black text-yellow-500 hover:text-yellow-400 transition-colors uppercase">Force Re-Forge_</button>
                    </div>
                    <div className="flex flex-wrap gap-2">
                       {TONES.map(t => (
@@ -437,13 +439,13 @@ const App = () => {
 
                 <div className="grid lg:grid-cols-2 gap-12 items-start">
                    <div className="space-y-4">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">Final Edit Panel</label>
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">AI-Crafted Post</label>
                       <textarea 
                         value={caption} 
                         onChange={e => setCaption(e.target.value)} 
-                        className="w-full h-80 bg-black/30 border border-white/5 rounded-2xl p-6 text-sm leading-relaxed outline-none focus:border-yellow-500/30 resize-none font-medium transition-all"
+                        className="w-full h-96 bg-black/30 border border-white/5 rounded-2xl p-6 text-base leading-relaxed outline-none focus:border-yellow-500/30 resize-none font-medium transition-all"
                       />
-                      <button onClick={() => handleCopy(caption)} className="w-full py-3 bg-[#111] border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-white/5 transition-all">Copy Post Text_</button>
+                      <button onClick={() => handleCopy(caption)} className="w-full py-4 bg-[#111] border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-white/5 transition-all">Copy Post Text_</button>
                    </div>
 
                    <div className="space-y-4">
