@@ -21,7 +21,7 @@ export function dataURLtoBlob(dataurl: string): Blob {
 export async function enhanceText(text: string): Promise<string> {
   if (!text) return "";
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+    const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_API_KEY });
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: `Rewrite this professional accomplishment for a social media graphic. Keep it impactful, bold, and under 12 words. Output ONLY the polished text.\n\nInput: "${text}"`,
@@ -46,7 +46,7 @@ export async function generateCaption(accomplishment: string): Promise<string> {
 export async function generateCaptionWithTone(accomplishment: string, tone: string): Promise<string> {
   if (!accomplishment) return "";
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+    const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_API_KEY });
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: `Write a professional, engaging LinkedIn post caption based on this engineering accomplishment: ${accomplishment}. 
